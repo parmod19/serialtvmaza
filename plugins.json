@@ -1,0 +1,83 @@
+[
+    {
+        "iconUrl": "https://www.google.com/s2/favicons?domain=hdmovie4.com&sz=%size%",
+        "fileHash": "sha256-085af1ccd1f30da52ef44e260f5db98ea5cf4e232426588cfcf40aff5b98e103",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/parmod19/serialtvmaza",
+        "fileSize": 17088,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "parmod19"
+        ],
+        "tvTypes": [
+            "Movie",
+            "TvSeries"
+        ],
+        "version": 1,
+        "internalName": "Hdmovie4",
+        "description": "Movies and web series from hdmovie4.com",
+        "url": "https://raw.githubusercontent.com/parmod19/serialtvmaza/builds/Hdmovie4.cs3",
+        "name": "Hdmovie4"
+    },
+    {
+        "iconUrl": "https://www.google.com/s2/favicons?domain=serialtvmaza.sbs&sz=%size%",
+        "fileHash": "sha256-87e910b82501cdea1ee20d9f234a0e1c8d67f73b9239b991918a2095fcea679d",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/parmod19/serialtvmaza",
+        "fileSize": 38436,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "you"
+        ],
+        "tvTypes": [
+            "TvSeries"
+        ],
+        "version": 15,
+        "internalName": "SerialTvMaza",
+        "description": "Hindi TV serials and reality shows from serialtvmaza.sbs",
+        "url": "https://raw.githubusercontent.com/parmod19/serialtvmaza/builds/SerialTvMaza.cs3",
+        "name": "SerialTvMaza"
+    },
+    {
+        "iconUrl": "https://www.google.com/s2/favicons?domain=serialtvmaza.me&sz=%size%",
+        "fileHash": "sha256-1e583e1ac66a4dc4f1893952e1d5c1ead35039b2cd183430981a35a99960b4d0",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/parmod19/serialtvmaza",
+        "fileSize": 38503,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "you"
+        ],
+        "tvTypes": [
+            "TvSeries"
+        ],
+        "version": 18,
+        "internalName": "SerialTvMazaMe",
+        "description": "Hindi TV serials and reality shows from serialtvmaza.me",
+        "url": "https://raw.githubusercontent.com/parmod19/serialtvmaza/builds/SerialTvMazaMe.cs3",
+        "name": "SerialTvMazaMe"
+    },
+    {
+        "iconUrl": "https://www.google.com/s2/favicons?domain=serialtvmaza.net&sz=%size%",
+        "fileHash": "sha256-7f17ca4168c71b30ebe25079a08c8c12551e1b24d0bb5b0ba06c7da95555365c",
+        "apiVersion": 1,
+        "repositoryUrl": "https://github.com/parmod19/serialtvmaza",
+        "fileSize": 38618,
+        "status": 1,
+        "language": "hi",
+        "authors": [
+            "you"
+        ],
+        "tvTypes": [
+            "TvSeries"
+        ],
+        "version": 17,
+        "internalName": "SerialTvMazaNet",
+        "description": "Hindi TV serials and reality shows from serialtvmaza.net",
+        "url": "https://raw.githubusercontent.com/parmod19/serialtvmaza/builds/SerialTvMazaNet.cs3",
+        "name": "SerialTvMazaNet"
+    }
+]
