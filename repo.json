@@ -3,6 +3,6 @@
   "description": "Cloudstream provider for serialtvmaza.sbs",
   "manifestVersion": 1,
   "pluginLists": [
-    "https://raw.githubusercontent.com/YOUR_GITHUB_USERNAME/YOUR_REPO_NAME/builds/plugins.json"
+    "https://raw.githubusercontent.com/YOURNAME/TestPlugins/builds/plugins.json"
   ]
 }
