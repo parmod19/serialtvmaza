@@ -294,14 +294,20 @@ class SerialTvMazaProvider : MainAPI() {
             }
 
         // 4) Direct streams inside the page.
-        m3u8Regex.findAll(html).map { it.value }.distinct().forEach { u ->
+                m3u8Regex.findAll(html).map { it.value }.distinct().forEach { u ->
             if (seen.add(u)) {
+                // Player page uses "no-referrer", so send no Referer (same as Chrome).
                 callback(
-                    newExtractorLink(name, "$name - ${label.ifBlank { "HLS" }}", u, ExtractorLinkType.M3U8) {
-                        this.referer = link
+                    newExtractorLink(name, "$name - ${label.ifBlank { "HLS" }} (Auto)", u, ExtractorLinkType.M3U8) {
+                        this.referer = ""
                         this.quality = Qualities.Unknown.value
                     }
                 )
+                // Also add each quality as a separate choice.
+                try {
+                    M3u8Helper.generateM3u8(name, u, "").forEach { callback(it) }
+                } catch (e: Exception) {
+                }
                 found = true
             }
         }
