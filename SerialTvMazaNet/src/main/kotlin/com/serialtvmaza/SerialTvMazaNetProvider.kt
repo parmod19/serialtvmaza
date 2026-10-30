@@ -17,8 +17,11 @@ class SerialTvMazaNetProvider : MainAPI() {
     // Channel category slugs seen in the site navigation (2026-10-30).
     private val channels = setOf(
         "colors-tv", "star-plus", "sony-tv", "zee-tv",
-        "sab-tv", "mtv", "sun-neo", "star-bharat"
+        "sab-tv", "mtv", "sun-neo", "star-bharat", "dangal-tv", "web-series"
     )
+
+    // Categories whose pages list movie/event posts directly.
+    private val postCategories = setOf("movies", "awards-concerts")
 
     // Top-level WordPress paths that are NOT episode posts.
     private val reserved = setOf(
@@ -37,6 +40,10 @@ class SerialTvMazaNetProvider : MainAPI() {
         "$mainUrl/mtv/" to "MTV",
         "$mainUrl/sun-neo/" to "Sun Neo",
         "$mainUrl/star-bharat/" to "Star Bharat",
+        "$mainUrl/dangal-tv/" to "Dangal TV",
+        "$mainUrl/web-series/" to "Web Series",
+        "$mainUrl/movies/" to "Movies",
+        "$mainUrl/awards-concerts/" to "Awards & Concerts",
     )
 
     // ---------- URL helpers ----------
@@ -49,7 +56,7 @@ class SerialTvMazaNetProvider : MainAPI() {
 
     private fun isEpisodeUrl(url: String): Boolean {
         val s = segments(url)
-        return s.size == 1 && s[0] !in reserved && s[0] !in channels
+        return s.size == 1 && s[0] !in reserved && s[0] !in channels && s[0] !in postCategories
     }
 
     private fun isShowUrl(url: String): Boolean {
@@ -138,7 +145,8 @@ class SerialTvMazaNetProvider : MainAPI() {
         val doc = app.get(url).document
         val items = parseItems(doc)
         val isHome = request.data.trimEnd('/') == mainUrl.trimEnd('/')
-        val results = if (isHome) toEpisodeCards(items) else toSearchResults(items)
+        val isPostList = isHome || segments(request.data).firstOrNull() in postCategories
+        val results = if (isPostList) toEpisodeCards(items) else toSearchResults(items)
         val hasNext = doc.select("a[href*=/page/${page + 1}/]").isNotEmpty()
         return newHomePageResponse(listOf(HomePageList(request.name, results)), hasNext)
     }
