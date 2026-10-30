@@ -240,7 +240,7 @@ class SerialTvMazaProvider : MainAPI() {
     private val metaRefreshRegex = Regex("""(?i)url=(https?://[^"'>\s]+)""")
 
     /**
-     * Opens one redirector link (articleweb.xyz/vid/*.php?id=...) and tries, in order:
+     * Opens one redirector link (articleweb.xyz vid php page) and tries, in order:
      * HTTP redirect target, iframes, JS/meta redirects, direct m3u8/mp4 URLs.
      */
     private suspend fun resolveServer(
