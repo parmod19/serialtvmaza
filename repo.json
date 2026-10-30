@@ -1,8 +1,0 @@
-{
-  "name": "SerialTvMaza Repo",
-  "description": "Cloudstream provider for serialtvmaza.sbs",
-  "manifestVersion": 1,
-  "pluginLists": [
-    "https://raw.githubusercontent.com/parmod19/serialtvmaza/builds/plugins.json"
-  ]
-}
