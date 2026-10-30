@@ -238,6 +238,25 @@ class SerialTvMazaProvider : MainAPI() {
     private val jsRedirectRegex =
         Regex("""(?:location(?:\.href)?\s*=\s*|location\.replace\(\s*|window\.open\(\s*)["'](https?://[^"']+)["']""")
     private val metaRefreshRegex = Regex("""(?i)url=(https?://[^"'>\s]+)""")
+    
+    private val secretKeyRegex = Regex("""secretKey\s*=\s*["']([^"']+)["']""")
+    private val encryptedRegex = Regex("""encryptedData\s*=\s*["']([0-9a-fA-F]+)["']""")
+
+    /** Some player pages hide the stream URL as XOR-encoded hex. Decode it like the page's own script does. */
+    private fun decodeHiddenStream(html: String): String? {
+        val key = secretKeyRegex.find(html)?.groupValues?.get(1) ?: return null
+        val hex = encryptedRegex.find(html)?.groupValues?.get(1) ?: return null
+        if (key.isEmpty() || hex.length % 2 != 0) return null
+        val sb = StringBuilder()
+        var i = 0
+        while (i < hex.length) {
+            val code = hex.substring(i, i + 2).toInt(16)
+            sb.append((code xor key[(i / 2) % key.length].code).toChar())
+            i += 2
+        }
+        val out = sb.toString()
+        return if (out.startsWith("http")) out else null
+    }
 
     /**
      * Opens one redirector link (articleweb.xyz vid php page) and tries, in order:
@@ -294,7 +313,7 @@ class SerialTvMazaProvider : MainAPI() {
             }
 
         // 4) Direct streams inside the page.
-                m3u8Regex.findAll(html).map { it.value }.distinct().forEach { u ->
+                        (listOfNotNull(decodeHiddenStream(html)?.takeIf { it.contains(".m3u8") }) + m3u8Regex.findAll(html).map { it.value }).distinct().forEach { u ->
             if (seen.add(u)) {
                 // Player page uses "no-referrer", so send no Referer (same as Chrome).
                 callback(
@@ -311,7 +330,7 @@ class SerialTvMazaProvider : MainAPI() {
                 found = true
             }
         }
-        mp4Regex.findAll(html).map { it.value }.distinct().forEach { u ->
+                (listOfNotNull(decodeHiddenStream(html)?.takeIf { it.contains(".mp4") && !it.contains(".m3u8") }) + mp4Regex.findAll(html).map { it.value }).distinct().forEach { u ->
             if (seen.add(u)) {
                 callback(
                     newExtractorLink(name, "$name - ${label.ifBlank { "MP4" }}", u, ExtractorLinkType.VIDEO) {
