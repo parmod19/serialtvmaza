@@ -269,12 +269,16 @@ class SerialTvMazaProvider : MainAPI() {
         val html = res.text.replace("\\/", "/")
         val page = res.document
 
-        // 2) Iframes.
+                // 2) Iframes (same-site player pages are opened again, others go to extractors).
         page.select("iframe[src]").forEach {
             val src = it.absUrl("src")
             if (src.isNotBlank() && seen.add(src)) {
-                loadExtractor(src, link, subtitleCallback, callback)
-                found = true
+                if (hostOf(src) == linkHost) {
+                    if (resolveServer(src, label, link, seen, subtitleCallback, callback)) found = true
+                } else {
+                    loadExtractor(src, link, subtitleCallback, callback)
+                    found = true
+                }
             }
         }
 
