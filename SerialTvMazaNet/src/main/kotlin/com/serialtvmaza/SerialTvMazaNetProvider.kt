@@ -244,9 +244,12 @@ class SerialTvMazaNetProvider : MainAPI() {
 
         // "WATCH IN HD - SERVER 1..4" and "DOWNLOAD - SERVER 5" buttons.
         val serverLinks = doc.select("a[href]").filter {
-            it.text().contains("server", ignoreCase = true) &&
+            (it.text().contains("server", ignoreCase = true) || it.absUrl("href").contains("/vid/")) &&
                     hostOf(it.absUrl("href")) != siteHost
-        }.map { it.absUrl("href") to it.text().trim() }
+        }.map { a ->
+            val prev = a.parent()?.previousElementSibling()?.text()?.trim().orEmpty()
+            a.absUrl("href") to prev.ifBlank { a.text().trim() }
+        }
 
         for ((link, label) in serverLinks) {
             if (!seen.add(link)) continue
