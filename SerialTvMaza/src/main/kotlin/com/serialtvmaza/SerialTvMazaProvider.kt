@@ -36,6 +36,7 @@ class SerialTvMazaProvider : MainAPI() {
         "$mainUrl/sab-tv/" to "SAB TV",
         "$mainUrl/mtv/" to "MTV",
         "$mainUrl/sun-neo/" to "Sun Neo",
+        "$mainUrl/star-bharat/" to "Star Bharat",
     )
 
     // ---------- URL helpers ----------
@@ -108,14 +109,36 @@ class SerialTvMazaProvider : MainAPI() {
                 this.posterUrl = it.poster
             }
         }
+    private val dateInTitleRegex = Regex("""(\d{1,2})(?:st|nd|rd|th)\s+([A-Za-z]+)\s+(\d{4})""")
+    private val monthNames = listOf(
+        "january", "february", "march", "april", "may", "june",
+        "july", "august", "september", "october", "november", "december"
+    )
 
+    private fun dateKey(title: String): Int {
+        val m = dateInTitleRegex.find(title) ?: return 0
+        val day = m.groupValues[1].toIntOrNull() ?: return 0
+        val month = monthNames.indexOf(m.groupValues[2].lowercase()) + 1
+        val year = m.groupValues[3].toIntOrNull() ?: return 0
+        return year * 10000 + month * 100 + day
+    }
+
+    /** One card per episode, newest date first (used for the home page). */
+    private fun toEpisodeCards(items: List<Item>): List<SearchResponse> =
+        items.sortedByDescending { dateKey(it.title) }.map {
+            newTvSeriesSearchResponse(cleanEpisodeName(it.title), it.href, TvType.TvSeries) {
+                this.posterUrl = it.poster
+            }
+        }
     // ---------- Main page ----------
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val base = request.data.trimEnd('/')
         val url = if (page > 1) "$base/page/$page/" else request.data
         val doc = app.get(url).document
-        val results = toSearchResults(parseItems(doc))
+        val items = parseItems(doc)
+        val isHome = request.data.trimEnd('/') == mainUrl.trimEnd('/')
+        val results = if (isHome) toEpisodeCards(items) else toSearchResults(items)
         val hasNext = doc.select("a[href*=/page/${page + 1}/]").isNotEmpty()
         return newHomePageResponse(listOf(HomePageList(request.name, results)), hasNext)
     }
