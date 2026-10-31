@@ -14,7 +14,7 @@ import java.util.Locale
 import java.util.TimeZone
 
 // ====== SIRF YE 2 LINES EDIT KARNI HAIN ======
-private const val PLAYLIST_URL = "https://game.playindia.fun/Jtv/9HsOlk/Playlist.m3u"
+private const val PLAYLIST_URL = "game.playindia.fun/Jtv/9HsOlk/Playlist.m3u"
 private const val SLOT_MINUTES = 60 // catchup slot size: 30 ya 60
 // =============================================
 
@@ -84,6 +84,21 @@ class M3uCatchupProvider : MainAPI() {
                     ref = line.substringAfter("=")
                 line.isNotEmpty() && !line.startsWith("#") -> {
                     if (title.isNotEmpty()) {
+                        // Kodi style headers: url|User-Agent=xxx&Referer=yyy
+                        var streamUrl = line
+                        var pUa = ua ?: attrs["http-user-agent"] ?: attrs["user-agent"]
+                        var pRef = ref ?: attrs["http-referrer"] ?: attrs["referer"]
+                        if (line.contains("|")) {
+                            streamUrl = line.substringBefore("|")
+                            line.substringAfter("|").split("&").forEach { kv ->
+                                val k = kv.substringBefore("=").trim().lowercase()
+                                val v = kv.substringAfter("=", "").trim()
+                                when (k) {
+                                    "user-agent" -> pUa = v
+                                    "referer", "referrer" -> pRef = v
+                                }
+                            }
+                        }
                         val src = attrs["catchup-source"]
                         val type = attrs["catchup"]
                             ?: if (!src.isNullOrEmpty()) "default" else null
@@ -92,15 +107,15 @@ class M3uCatchupProvider : MainAPI() {
                         out.add(
                             Channel(
                                 name = title,
-                                url = line,
+                                url = streamUrl,
                                 logo = attrs["tvg-logo"]?.takeIf { it.isNotBlank() },
                                 group = attrs["group-title"]?.takeIf { it.isNotBlank() }
                                     ?: "Channels",
                                 catchup = type,
                                 catchupSource = src,
                                 catchupDays = days.coerceIn(1, 14),
-                                userAgent = ua,
-                                referer = ref
+                                userAgent = pUa,
+                                referer = pRef
                             )
                         )
                     }
