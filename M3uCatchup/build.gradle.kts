@@ -1,7 +1,7 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 import org.jetbrains.kotlin.gradle.tasks.KotlinCompile
 
-version = 1
+version = 2
 
 cloudstream {
     description = "My M3U playlist with day/time wise catchup"
