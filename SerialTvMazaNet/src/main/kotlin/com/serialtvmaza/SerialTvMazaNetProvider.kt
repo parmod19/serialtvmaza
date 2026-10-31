@@ -169,10 +169,24 @@ class SerialTvMazaNetProvider : MainAPI() {
 
         if (isEpisodeUrl(url)) {
             // The URL came from an episode post: jump to its show category page.
-            val section = doc.selectFirst("meta[property=article:section]")?.attr("content")?.trim()
-            val showLink = doc.select("a[href]").firstOrNull {
-                isShowUrl(it.absUrl("href")) && section != null &&
-                        it.text().trim().equals(section, ignoreCase = true)
+            val epSlug = segments(url).firstOrNull().orEmpty()
+            val showLinks = doc.select("a[href]").filter {
+                isShowUrl(it.absUrl("href")) && it.text().isNotBlank()
+            }
+            fun slugOf(a: org.jsoup.nodes.Element) = segments(a.absUrl("href")).lastOrNull().orEmpty()
+            // 1) The show whose slug is the longest prefix of the episode slug.
+            var showLink = showLinks
+                .filter { epSlug.startsWith(slugOf(it) + "-") }
+                .maxByOrNull { slugOf(it).length }
+            // 2) Fallback: article:section, only if first letters agree with the episode slug.
+            if (showLink == null) {
+                val section = doc.selectFirst("meta[property=article:section]")?.attr("content")?.trim()
+                if (section != null) {
+                    showLink = showLinks.firstOrNull {
+                        it.text().trim().equals(section, ignoreCase = true) &&
+                                slugOf(it).take(2) == epSlug.take(2)
+                    }
+                }
             }
             if (showLink != null) {
                 showUrl = showLink.absUrl("href")
@@ -192,11 +206,16 @@ class SerialTvMazaNetProvider : MainAPI() {
         val slugKey = showSlug.take(8) // tolerant prefix match (site spells names inconsistently)
 
         val collected = LinkedHashMap<String, Item>()
+        val knownShows = doc.select("a[href]").map { it.absUrl("href") }
+            .filter { isShowUrl(it) }.map { segments(it).lastOrNull().orEmpty() }.toSet()
+        fun isForeign(slug: String): Boolean {
+            val best = knownShows.filter { slug.startsWith("$it-") }.maxByOrNull { it.length }
+            return best != null && best != showSlug
+        }
         fun addFrom(d: Document) {
-            parseItems(d).filter { item ->
-                val slug = segments(item.href).firstOrNull().orEmpty()
-                slugKey.isBlank() || slug.startsWith(slugKey)
-            }.forEach { collected.putIfAbsent(it.href, it) }
+            parseItems(d)
+                .filter { !isForeign(segments(it.href).firstOrNull().orEmpty()) }
+                .forEach { collected.putIfAbsent(it.href, it) }
         }
         addFrom(doc)
         // Remaining pages are fetched in parallel instead of one after another.
