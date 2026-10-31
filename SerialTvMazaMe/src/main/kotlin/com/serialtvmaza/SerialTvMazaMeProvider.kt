@@ -237,15 +237,48 @@ class SerialTvMazaMeProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val doc = app.get(data).document
         val seen = HashSet<String>()
+        val doc = app.get(data).document
+        var found = extractFromPage(data, doc, seen, subtitleCallback, callback)
+
+        if (!found) {
+            // Newer posts only carry a "Watch Online Full Episode - Click Here" link
+            // that opens the real page (can be on another domain such as serialtvmaza.me).
+            val hops = doc.select("a[href]").filter {
+                val t = it.text()
+                val h = it.absUrl("href")
+                t.contains("click here", ignoreCase = true) &&
+                        t.contains("full episode", ignoreCase = true) &&
+                        h.isNotBlank() && h != data && isEpisodeUrl(h)
+            }.map { it.absUrl("href") }.distinct().take(2)
+
+            for (h in hops) {
+                if (!seen.add(h)) continue
+                val hopDoc = try {
+                    app.get(h, referer = data).document
+                } catch (e: Exception) {
+                    continue
+                }
+                if (extractFromPage(h, hopDoc, seen, subtitleCallback, callback)) found = true
+            }
+        }
+        return found
+    }
+
+    private suspend fun extractFromPage(
+        pageUrl: String,
+        doc: Document,
+        seen: HashSet<String>,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
         var found = false
-        val siteHost = hostOf(mainUrl)
+        val ownHosts = setOf(hostOf(mainUrl), hostOf(pageUrl))
 
         // "WATCH IN HD - SERVER 1..4" and "DOWNLOAD - SERVER 5" buttons.
         val serverLinks = doc.select("a[href]").filter {
             (it.text().contains("server", ignoreCase = true) || it.absUrl("href").contains("/vid/")) &&
-                    hostOf(it.absUrl("href")) != siteHost
+                    hostOf(it.absUrl("href")) !in ownHosts
         }.map { a ->
             val prev = a.parent()?.previousElementSibling()?.text()?.trim().orEmpty()
             a.absUrl("href") to prev.ifBlank { a.text().trim() }
@@ -253,7 +286,7 @@ class SerialTvMazaMeProvider : MainAPI() {
 
         for ((link, label) in serverLinks) {
             if (isYoutube(link) || !seen.add(link)) continue
-            if (resolveServer(link, label, data, seen, subtitleCallback, callback)) found = true
+            if (resolveServer(link, label, pageUrl, seen, subtitleCallback, callback)) found = true
         }
 
         // Any iframe embedded directly in the post (YouTube only as a last resort).
@@ -264,13 +297,13 @@ class SerialTvMazaMeProvider : MainAPI() {
             if (isYoutube(src)) {
                 ytFallback.add(src)
             } else {
-                loadExtractor(src, data, subtitleCallback, callback)
+                loadExtractor(src, pageUrl, subtitleCallback, callback)
                 found = true
             }
         }
         if (!found) {
             ytFallback.forEach {
-                loadExtractor(it, data, subtitleCallback, callback)
+                loadExtractor(it, pageUrl, subtitleCallback, callback)
                 found = true
             }
         }
