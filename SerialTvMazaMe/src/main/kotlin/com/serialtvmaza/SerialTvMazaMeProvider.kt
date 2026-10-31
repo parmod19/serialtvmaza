@@ -41,9 +41,6 @@ class SerialTvMazaMeProvider : MainAPI() {
         "$mainUrl/sun-neo/" to "Sun Neo",
         "$mainUrl/star-bharat/" to "Star Bharat",
         "$mainUrl/dangal-tv/" to "Dangal TV",
-        "$mainUrl/web-series/" to "Web Series",
-        "$mainUrl/movies/" to "Movies",
-        "$mainUrl/awards-concerts/" to "Awards & Concerts",
     )
 
     // ---------- URL helpers ----------
