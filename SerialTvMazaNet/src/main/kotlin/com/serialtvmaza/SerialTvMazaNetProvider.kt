@@ -252,19 +252,34 @@ class SerialTvMazaNetProvider : MainAPI() {
         }
 
         for ((link, label) in serverLinks) {
-            if (!seen.add(link)) continue
+            if (isYoutube(link) || !seen.add(link)) continue
             if (resolveServer(link, label, data, seen, subtitleCallback, callback)) found = true
         }
 
-        // Any iframe embedded directly in the post.
+        // Any iframe embedded directly in the post (YouTube only as a last resort).
+        val ytFallback = ArrayList<String>()
         doc.select("iframe[src]").forEach {
             val src = it.absUrl("src")
-            if (src.isNotBlank() && seen.add(src)) {
+            if (src.isBlank() || !seen.add(src)) return@forEach
+            if (isYoutube(src)) {
+                ytFallback.add(src)
+            } else {
                 loadExtractor(src, data, subtitleCallback, callback)
                 found = true
             }
         }
+        if (!found) {
+            ytFallback.forEach {
+                loadExtractor(it, data, subtitleCallback, callback)
+                found = true
+            }
+        }
         return found
+    }
+
+    private fun isYoutube(url: String): Boolean {
+        val h = hostOf(url)
+        return h.endsWith("youtube.com") || h.endsWith("youtu.be") || h.endsWith("youtube-nocookie.com")
     }
 
     private val m3u8Regex = Regex("""https?://[^\s"'<>\\]+\.m3u8[^\s"'<>\\]*""")
@@ -314,7 +329,7 @@ class SerialTvMazaNetProvider : MainAPI() {
 
         // 1) Redirected to a real video host.
         val finalUrl = res.url
-        if (hostOf(finalUrl) != linkHost && seen.add(finalUrl)) {
+        if (hostOf(finalUrl) != linkHost && !isYoutube(finalUrl) && seen.add(finalUrl)) {
             loadExtractor(finalUrl, referer, subtitleCallback, callback)
             found = true
         }
@@ -329,7 +344,7 @@ class SerialTvMazaNetProvider : MainAPI() {
                 if (hostOf(src) == linkHost) {
                     if (resolveServer(src, label, link, seen, subtitleCallback, callback)) found = true
                 } else {
-                    loadExtractor(src, link, subtitleCallback, callback)
+                    if (!isYoutube(src)) loadExtractor(src, link, subtitleCallback, callback)
                     found = true
                 }
             }
@@ -338,7 +353,7 @@ class SerialTvMazaNetProvider : MainAPI() {
         // 3) JS / meta-refresh redirects.
         (jsRedirectRegex.findAll(html).map { it.groupValues[1] } +
                 metaRefreshRegex.findAll(html).map { it.groupValues[1] })
-            .filter { hostOf(it) != linkHost }
+            .filter { hostOf(it) != linkHost && !isYoutube(it) }
             .forEach {
                 if (seen.add(it)) {
                     loadExtractor(it, link, subtitleCallback, callback)
