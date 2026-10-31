@@ -46,6 +46,16 @@ class M3uCatchupProvider : MainAPI() {
 
     private var cache: List<Channel>? = null
 
+    private val b64 = android.util.Base64.URL_SAFE or
+        android.util.Base64.NO_WRAP or android.util.Base64.NO_PADDING
+
+    // data http se shuru hoga taaki CloudStream fixUrl se kharab na kare
+    private fun enc(s: String): String =
+        "https://m3u.local/#" + android.util.Base64.encodeToString(s.toByteArray(), b64)
+
+    private fun dec(s: String): String =
+        String(android.util.Base64.decode(s.substringAfter("#"), b64))
+
     // ---------- M3U parsing ----------
     private suspend fun channels(): List<Channel> {
         cache?.let { return it }
@@ -103,7 +113,7 @@ class M3uCatchupProvider : MainAPI() {
     }
 
     private fun Channel.toSearch(): SearchResponse {
-        val data = this.toJson()
+        val data = enc(this.toJson())
         return if (catchup != null) {
             newTvSeriesSearchResponse(name, data, TvType.TvSeries) { posterUrl = logo }
         } else {
@@ -127,10 +137,10 @@ class M3uCatchupProvider : MainAPI() {
 
     // ---------- Load: Live + day/time wise catchup ----------
     override suspend fun load(url: String): LoadResponse {
-        val c = parseJson<Channel>(url)
+        val c = parseJson<Channel>(dec(url))
 
         if (c.catchup == null) {
-            return newLiveStreamLoadResponse(c.name, url, Play(c).toJson()) {
+            return newLiveStreamLoadResponse(c.name, url, enc(Play(c).toJson())) {
                 posterUrl = c.logo
                 plot = c.group
             }
@@ -142,7 +152,7 @@ class M3uCatchupProvider : MainAPI() {
         // Season 1 = Live
         seasons.add(SeasonData(1, "Live"))
         episodes.add(
-            newEpisode(Play(c).toJson()) {
+            newEpisode(enc(Play(c).toJson())) {
                 this.name = "LIVE"
                 this.season = 1
                 this.episode = 1
@@ -181,7 +191,7 @@ class M3uCatchupProvider : MainAPI() {
                 val endMs = minOf(startMs + SLOT_MINUTES * 60_000L, nowMs)
 
                 episodes.add(
-                    newEpisode(Play(c, startMs / 1000, endMs / 1000).toJson()) {
+                    newEpisode(enc(Play(c, startMs / 1000, endMs / 1000).toJson())) {
                         this.name = timeFmt.format(Date(startMs)) + " - " +
                             timeFmt.format(Date(startMs + SLOT_MINUTES * 60_000L))
                         this.season = seasonNo
@@ -262,7 +272,7 @@ class M3uCatchupProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val p = parseJson<Play>(data)
+        val p = parseJson<Play>(dec(data))
         val link = if (p.start == 0L) p.ch.url else catchupUrl(p.ch, p.start, p.end)
 
         val hdr = HashMap<String, String>()
@@ -273,7 +283,7 @@ class M3uCatchupProvider : MainAPI() {
                 name,
                 p.ch.name,
                 link,
-                if (link.contains(".m3u8")) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
+                if (link.contains("m3u8", true)) ExtractorLinkType.M3U8 else ExtractorLinkType.VIDEO
             ) {
                 this.referer = p.ch.referer ?: ""
                 this.quality = Qualities.Unknown.value
