@@ -184,23 +184,22 @@ class SerialTvMazaProvider : MainAPI() {
         val slugKey = showSlug.take(8) // tolerant prefix match (site spells names inconsistently)
 
         val collected = LinkedHashMap<String, Item>()
-        var pageDoc = doc
-        var p = 1
-        while (p <= 8) {
-            val items = parseItems(pageDoc).filter { item ->
+        fun addFrom(d: Document) {
+            parseItems(d).filter { item ->
                 val slug = segments(item.href).firstOrNull().orEmpty()
                 slugKey.isBlank() || slug.startsWith(slugKey)
-            }
-            var added = 0
-            items.forEach { if (collected.putIfAbsent(it.href, it) == null) added++ }
-            if (added == 0) break
-            p++
-            pageDoc = try {
+            }.forEach { collected.putIfAbsent(it.href, it) }
+        }
+        addFrom(doc)
+        // Remaining pages are fetched in parallel instead of one after another.
+        val extraDocs = (2..6).toList().amap { p ->
+            try {
                 app.get("${showUrl.trimEnd('/')}/page/$p/").document
             } catch (e: Exception) {
-                break
+                null
             }
         }
+        extraDocs.filterNotNull().forEach { addFrom(it) }
 
         val episodes = collected.values.reversed().map { item ->
             newEpisode(item.href) {
