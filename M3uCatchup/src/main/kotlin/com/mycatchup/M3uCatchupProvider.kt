@@ -218,7 +218,28 @@ class M3uCatchupProvider : MainAPI() {
         }.format(d)
 
         val dur = (end - start).toString()
-        return t
+
+        fun fmt(sec: Long, pattern: String, utc: Boolean): String {
+            val sdf = SimpleDateFormat(pattern, Locale.US)
+            if (utc) sdf.timeZone = TimeZone.getTimeZone("UTC")
+            return sdf.format(Date(sec * 1000))
+        }
+
+        // Format 1: ${(b)yyyyMMddHHmmss:utc}  ${(e)...}  ${(now)...}
+        var r = Regex("[$]\\{\\((b|e|now)\\)([^}:]*)(?::([A-Za-z]+))?\\}").replace(t) { m ->
+            val sec = when (m.groupValues[1]) { "b" -> start; "e" -> end; else -> now }
+            fmt(sec, m.groupValues[2], m.groupValues[3].equals("utc", true))
+        }
+        // Format 2: {utc:YmdHMS}  {utcend:YmdHMS}  {lutc:YmdHMS}
+        r = Regex("\\{(utc|utcend|lutc):([YmdHMS]+)\\}").replace(r) { m ->
+            val sec = when (m.groupValues[1]) { "utc" -> start; "utcend" -> end; else -> now }
+            val pat = m.groupValues[2].map {
+                when (it) { 'Y' -> "yyyy"; 'm' -> "MM"; 'd' -> "dd"; 'H' -> "HH"; 'M' -> "mm"; else -> "ss" }
+            }.joinToString("")
+            fmt(sec, pat, true)
+        }
+
+        return r
             .replace("\${start}", start.toString())
             .replace("{start}", start.toString())
             .replace("\${timestamp}", start.toString())
@@ -276,7 +297,7 @@ class M3uCatchupProvider : MainAPI() {
         val link = if (p.start == 0L) p.ch.url else catchupUrl(p.ch, p.start, p.end)
 
         val hdr = HashMap<String, String>()
-        p.ch.userAgent?.let { hdr["User-Agent"] = it }
+        hdr["User-Agent"] = p.ch.userAgent ?: "VLC/3.0.18 LibVLC/3.0.18"
 
         callback(
             newExtractorLink(
