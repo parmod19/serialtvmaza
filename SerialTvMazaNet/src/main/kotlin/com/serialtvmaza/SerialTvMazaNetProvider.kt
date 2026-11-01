@@ -146,7 +146,7 @@ class SerialTvMazaNetProvider : MainAPI() {
         val items = parseItems(doc)
         val isHome = request.data.trimEnd('/') == mainUrl.trimEnd('/')
         val isPostList = isHome || segments(request.data).firstOrNull() in postCategories
-        val results = if (isPostList) toEpisodeCards(items) else toSearchResults(items)
+        val results = toEpisodeCards(items)
         val hasNext = doc.select("a[href*=/page/${page + 1}/]").isNotEmpty()
         return newHomePageResponse(listOf(HomePageList(request.name, results)), hasNext)
     }
