@@ -78,7 +78,7 @@ class Hdmovie4Provider : MainAPI() {
                 this.plot = description
                 this.tags = tags
                 this.recommendations = recommendations
-                addActors(actors)
+                addActorNames(actors)
             }
         } else {
             newMovieLoadResponse(title, url, TvType.Movie, url) {
@@ -87,7 +87,7 @@ class Hdmovie4Provider : MainAPI() {
                 this.plot = description
                 this.tags = tags
                 this.recommendations = recommendations
-                addActors(actors)
+                addActorNames(actors)
             }
         }
     }
