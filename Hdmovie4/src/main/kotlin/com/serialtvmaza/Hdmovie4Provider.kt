@@ -1,10 +1,10 @@
 package com.serialtvmaza
 
-import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
 import java.net.URI
+import java.net.URLEncoder
 
 class Hdmovie4Provider : MainAPI() {
     // Domains jo order mein check hongi: pehle .com, phir .shop
@@ -21,15 +21,19 @@ class Hdmovie4Provider : MainAPI() {
     override val supportedTypes = setOf(TvType.Movie, TvType.TvSeries)
 
     override val mainPage = mainPageOf(
-        "/movies/" to "Movies",
-        "/tvshows/" to "Web Series",
+        "/" to "Latest",
+        "/genre/bollywood" to "Bollywood",
+        "/genre/hindi-dubbed" to "Hindi Dubbed",
+        "/genre/hollywood" to "Hollywood",
+        "/genre/netflix" to "Netflix",
+        "/genre/punjabi" to "Punjabi",
+        "/genre/romance" to "Romance",
     )
-
-    private val itemSelector =
-        "div.items.normal article, div#archive-content article, div.items.full article"
 
     @Volatile
     private var domainResolved = false
+
+    private val epRegex = Regex("""EP\s*0*(\d+)""", RegexOption.IGNORE_CASE)
 
     // ---------------- Domain fallback ----------------
     private suspend fun resolveDomain() {
@@ -60,18 +64,20 @@ class Hdmovie4Provider : MainAPI() {
     // ---------------- Home ----------------
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         resolveDomain()
-        val base = mainUrl + request.data
-        val url = if (page <= 1) base else "${base.trimEnd('/')}/page/$page/"
+        val url = "$mainUrl${request.data}?page=$page"
         val doc = app.get(url).document
-        val items = doc.select(itemSelector).mapNotNull { it.toSearchResult() }
-        return newHomePageResponse(request.name, items)
+        val items = doc.select("article.movie-card, article.search-card")
+            .mapNotNull { it.toSearchResult() }
+            .distinctBy { it.url }
+        return newHomePageResponse(request.name, items, items.isNotEmpty())
     }
 
     // ---------------- Search ----------------
     override suspend fun search(query: String): List<SearchResponse> {
         resolveDomain()
-        val doc = app.get("$mainUrl/?s=$query").document
-        return doc.select("div.result-item article, $itemSelector")
+        val q = URLEncoder.encode(query, "UTF-8")
+        val doc = app.get("$mainUrl/?s=$q").document
+        return doc.select("article.search-card, article.movie-card")
             .mapNotNull { it.toSearchResult() }
             .distinctBy { it.url }
     }
@@ -82,51 +88,39 @@ class Hdmovie4Provider : MainAPI() {
         val pageUrl = rebase(url)
         val doc = app.get(pageUrl).document
 
-        val title = doc.selectFirst("div.data > h1")?.text()?.trim()
-            ?: doc.selectFirst("meta[property=og:title]")?.attr("content")?.trim()
+        val title = doc.selectFirst("h1.single-title")?.text()?.trim()
+            ?: doc.selectFirst("meta[property=og:title]")?.attr("content")
+                ?.substringBefore(" Watch Online")?.trim()
             ?: "Unknown"
-        val poster = fixUrlNull(
-            doc.selectFirst("div.poster img")?.getImgUrl()
-                ?: doc.selectFirst("meta[property=og:image]")?.attr("content")
-        )
-        val description = doc.selectFirst("div.wp-content > p")?.text()?.trim()
-        val tags = doc.select("div.sgeneros > a").map { it.text() }
-        val year = Regex("(\\d{4})").find(doc.selectFirst("span.date")?.text().orEmpty())
-            ?.groupValues?.get(1)?.toIntOrNull()
-        val actors = doc.select("div.persons > div[itemprop=actor]").mapNotNull {
-            it.selectFirst("meta[itemprop=name]")?.attr("content")?.takeIf { n -> n.isNotBlank() }
-        }
-        val recommendations = doc.select("div.owl-item article").mapNotNull { it.toSearchResult() }
+        val poster = fixUrlNull(doc.selectFirst("meta[property=og:image]")?.attr("content"))
+        val plot = doc.selectFirst("div.synopsis-text")?.text()?.trim()
+        val year = Regex("\\((\\d{4})\\)").find(title)?.groupValues?.get(1)?.toIntOrNull()
 
-        val episodeRows = doc.select("ul.episodios > li")
-        val isSeries = pageUrl.contains("/tvshows/") || episodeRows.isNotEmpty()
+        val servers = doc.select("button.server-tab-btn[data-embed-url]").map { b ->
+            b.attr("data-embed-url") to (b.selectFirst("span.server-name-text")?.text()?.trim() ?: "Server")
+        }
+        val epMatches = servers.count { epRegex.containsMatchIn(it.second) }
+        val isSeries = servers.size > 1 && epMatches >= 2 && epMatches * 2 >= servers.size
 
         return if (isSeries) {
-            val episodes = episodeRows.mapNotNull { li ->
-                val a = li.selectFirst("div.episodiotitle > a") ?: return@mapNotNull null
-                val nums = li.selectFirst("div.numerando")?.text()
-                    ?.split("-")?.map { it.trim().toIntOrNull() }
-                newEpisode(fixUrl(a.attr("href"))) {
-                    this.name = a.text().trim()
-                    this.season = nums?.getOrNull(0)
-                    this.episode = nums?.getOrNull(1)
-                    this.posterUrl = fixUrlNull(li.selectFirst("div.imagen > img")?.getImgUrl())
+            val episodes = servers.mapIndexed { i, (embed, label) ->
+                val epNo = epRegex.find(label)?.groupValues?.get(1)?.toIntOrNull() ?: (i + 1)
+                newEpisode("$pageUrl@@$embed") {
+                    this.name = label
+                    this.season = 1
+                    this.episode = epNo
                 }
             }
             newTvSeriesLoadResponse(title, pageUrl, TvType.TvSeries, episodes) {
                 this.posterUrl = poster
                 this.year = year
-                this.plot = description
-                this.tags = tags
-                this.recommendations = recommendations
+                this.plot = plot
             }
         } else {
             newMovieLoadResponse(title, pageUrl, TvType.Movie, pageUrl) {
                 this.posterUrl = poster
                 this.year = year
-                this.plot = description
-                this.tags = tags
-                this.recommendations = recommendations
+                this.plot = plot
             }
         }
     }
@@ -139,92 +133,76 @@ class Hdmovie4Provider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         resolveDomain()
-        val pageUrl = rebase(data)
+        val parts = data.split("@@", limit = 2)
+        val pageUrl = rebase(parts[0])
         val doc = app.get(pageUrl).document
-        var found = false
 
-        val options = doc.select(
-            ".dooplay_player .options ul li, #video-sources .options ul li, " +
-                "div.options ul li.dooplay_player_option, ul#playeroptionsul > li"
-        ).distinctBy { it.attr("data-nume") + it.attr("data-post") }
-
-        for (li in options) {
-            val post = li.attr("data-post")
-            val nume = li.attr("data-nume")
-            val type = li.attr("data-type").ifBlank { "movie" }
-            if (post.isBlank() || nume.isBlank() || nume == "trailer") continue
-
-            val embed = fetchEmbed(post, nume, type, pageUrl) ?: continue
-            if (loadExtractor(embed, pageUrl, subtitleCallback, callback)) found = true
+        val servers: List<Pair<String, String>> = if (parts.size == 2) {
+            val embed = parts[1]
+            val label = doc.select("button.server-tab-btn[data-embed-url]")
+                .firstOrNull { it.attr("data-embed-url") == embed }
+                ?.selectFirst("span.server-name-text")?.text()?.trim() ?: "Server"
+            listOf(embed to label)
+        } else {
+            doc.select("button.server-tab-btn[data-embed-url]").map { b ->
+                b.attr("data-embed-url") to (b.selectFirst("span.server-name-text")?.text()?.trim() ?: "Server")
+            }
         }
 
-        if (!found) {
-            doc.select("div.embed iframe, iframe").forEach { iframe ->
-                val src = fixUrlNull(iframe.attr("src").ifBlank { iframe.attr("data-src") })
-                if (!src.isNullOrBlank() && !src.contains("youtube")) {
-                    if (loadExtractor(src, pageUrl, subtitleCallback, callback)) found = true
-                }
+        var found = false
+        for ((embed, label) in servers) {
+            try {
+                if (resolvePlayer(embed, label, pageUrl, callback)) found = true
+            } catch (e: Exception) {
+                // is server mein dikkat, agla try karo
             }
         }
         return found
     }
 
-    private suspend fun fetchEmbed(post: String, nume: String, type: String, referer: String): String? {
-        val ajax = app.post(
-            "$mainUrl/wp-admin/admin-ajax.php",
-            data = mapOf(
-                "action" to "doo_player_ajax",
-                "post" to post,
-                "nume" to nume,
-                "type" to type
-            ),
-            headers = mapOf("X-Requested-With" to "XMLHttpRequest"),
-            referer = referer
-        ).parsedSafe<EmbedResponse>()?.embedUrl
+    // /hdm2-player/XXXX/ -> hdm2.biz/play?... -> data-stream-url (playlist)
+    private suspend fun resolvePlayer(
+        embed: String,
+        label: String,
+        referer: String,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
+        val res = app.get(fixUrl(embed), referer = referer)
+        val loader = res.document.selectFirst("script#player-loader") ?: return false
+        val stream = loader.attr("data-stream-url")
+        if (stream.isBlank()) return false
 
-        val raw = ajax?.takeIf { it.isNotBlank() } ?: app.get(
-            "$mainUrl/wp-json/dooplayer/v2/$post/$type/$nume",
-            referer = referer
-        ).parsedSafe<EmbedResponse>()?.embedUrl
+        val uri = URI(res.url)
+        val origin = "${uri.scheme}://${uri.host}"
+        val streamUrl = if (stream.startsWith("http")) stream else origin + stream
 
-        if (raw.isNullOrBlank()) return null
-        val url = Regex("""src=["']([^"']+)["']""").find(raw)?.groupValues?.get(1) ?: raw
-        return fixUrlNull(url.replace("\\/", "/"))
+        callback(
+            newExtractorLink(name, "$name $label", streamUrl, ExtractorLinkType.M3U8) {
+                this.referer = "$origin/"
+                this.quality = Qualities.Unknown.value
+                this.headers = mapOf("Origin" to origin)
+            }
+        )
+        return true
     }
 
     // ---------------- Helpers ----------------
     private fun Element.toSearchResult(): SearchResponse? {
-        val a = selectFirst("h3 > a, div.title > a, h2.result-title > a") ?: selectFirst("a") ?: return null
+        val a = selectFirst("h3.movie-title a, h2.search-card-title a")
+            ?: selectFirst("a[href*=/movie/]") ?: return null
         val href = fixUrl(a.attr("href"))
         if (href.isBlank()) return null
         val img = selectFirst("img")
         val title = a.text().trim().ifBlank { img?.attr("alt")?.trim().orEmpty() }
         if (title.isBlank()) return null
-        val poster = fixUrlNull(img?.getImgUrl())
-        val quality = getQualityFromString(selectFirst("span.quality")?.text())
-        val isSeries = href.contains("/tvshows/") || hasClass("tvshows")
+        val poster = fixUrlNull(img?.attr("src")?.takeIf { it.isNotBlank() })
+        val quality = getQualityFromString(
+            selectFirst("span.badge-quality, span.search-badge-quality")?.text()
+        )
 
-        return if (isSeries) {
-            newTvSeriesSearchResponse(title, href, TvType.TvSeries) {
-                this.posterUrl = poster
-                this.quality = quality
-            }
-        } else {
-            newMovieSearchResponse(title, href, TvType.Movie) {
-                this.posterUrl = poster
-                this.quality = quality
-            }
+        return newMovieSearchResponse(title, href, TvType.Movie) {
+            this.posterUrl = poster
+            this.quality = quality
         }
     }
-
-    private fun Element.getImgUrl(): String? {
-        return listOf("data-src", "data-lazy-src", "data-wpfc-original-src", "src")
-            .map { attr(it) }
-            .firstOrNull { it.isNotBlank() && !it.startsWith("data:") }
-    }
-
-    data class EmbedResponse(
-        @JsonProperty("embed_url") val embedUrl: String? = null,
-        @JsonProperty("type") val type: String? = null
-    )
 }
