@@ -3,7 +3,6 @@ package com.serialtvmaza
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
-import com.lagradost.cloudstream3.LoadResponse.Companion.addActorNames
 import org.jsoup.nodes.Element
 import java.net.URI
 
@@ -120,7 +119,6 @@ class Hdmovie4Provider : MainAPI() {
                 this.plot = description
                 this.tags = tags
                 this.recommendations = recommendations
-                addActorNames(actors)
             }
         } else {
             newMovieLoadResponse(title, pageUrl, TvType.Movie, pageUrl) {
@@ -129,7 +127,6 @@ class Hdmovie4Provider : MainAPI() {
                 this.plot = description
                 this.tags = tags
                 this.recommendations = recommendations
-                addActorNames(actors)
             }
         }
     }
