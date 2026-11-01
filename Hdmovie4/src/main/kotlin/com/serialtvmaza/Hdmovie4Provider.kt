@@ -4,8 +4,15 @@ import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Element
+import java.net.URI
 
 class Hdmovie4Provider : MainAPI() {
+    // Domains jo order mein check hongi: pehle .com, phir .shop
+    private val domains = listOf(
+        "https://hdmovie4.com",
+        "https://hdmovie4.shop"
+    )
+
     override var mainUrl = "https://hdmovie4.com"
     override var name = "Hdmovie4"
     override val hasMainPage = true
@@ -14,16 +21,47 @@ class Hdmovie4Provider : MainAPI() {
     override val supportedTypes = setOf(TvType.Movie, TvType.TvSeries)
 
     override val mainPage = mainPageOf(
-        "$mainUrl/movies/" to "Movies",
-        "$mainUrl/tvshows/" to "Web Series",
+        "/movies/" to "Movies",
+        "/tvshows/" to "Web Series",
     )
 
     private val itemSelector =
         "div.items.normal article, div#archive-content article, div.items.full article"
 
+    @Volatile
+    private var domainResolved = false
+
+    // ---------------- Domain fallback ----------------
+    private suspend fun resolveDomain() {
+        if (domainResolved) return
+        for (d in domains) {
+            try {
+                val res = app.get(d, timeout = 10L)
+                if (res.code !in 200..299) continue
+                val uri = URI(res.url)
+                val host = uri.host ?: continue
+                // Redirect kisi dusri (hdmovie4 se alag) site par gaya to skip
+                if (!host.contains("hdmovie4", ignoreCase = true)) continue
+                mainUrl = "${uri.scheme}://$host"
+                domainResolved = true
+                return
+            } catch (e: Exception) {
+                // is domain par nahi khula, agla try karo
+            }
+        }
+    }
+
+    // Purane saved link ka domain naye domain se badal do
+    private fun rebase(url: String): String {
+        val re = Regex("^https?://[^/]*hdmovie4[^/]*", RegexOption.IGNORE_CASE)
+        return if (re.containsMatchIn(url)) mainUrl + re.replaceFirst(url, "") else url
+    }
+
     // ---------------- Home ----------------
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
-        val url = if (page <= 1) request.data else "${request.data.trimEnd('/')}/page/$page/"
+        resolveDomain()
+        val base = mainUrl + request.data
+        val url = if (page <= 1) base else "${base.trimEnd('/')}/page/$page/"
         val doc = app.get(url).document
         val items = doc.select(itemSelector).mapNotNull { it.toSearchResult() }
         return newHomePageResponse(request.name, items)
@@ -31,6 +69,7 @@ class Hdmovie4Provider : MainAPI() {
 
     // ---------------- Search ----------------
     override suspend fun search(query: String): List<SearchResponse> {
+        resolveDomain()
         val doc = app.get("$mainUrl/?s=$query").document
         return doc.select("div.result-item article, $itemSelector")
             .mapNotNull { it.toSearchResult() }
@@ -39,7 +78,9 @@ class Hdmovie4Provider : MainAPI() {
 
     // ---------------- Load ----------------
     override suspend fun load(url: String): LoadResponse {
-        val doc = app.get(url).document
+        resolveDomain()
+        val pageUrl = rebase(url)
+        val doc = app.get(pageUrl).document
 
         val title = doc.selectFirst("div.data > h1")?.text()?.trim()
             ?: doc.selectFirst("meta[property=og:title]")?.attr("content")?.trim()
@@ -58,7 +99,7 @@ class Hdmovie4Provider : MainAPI() {
         val recommendations = doc.select("div.owl-item article").mapNotNull { it.toSearchResult() }
 
         val episodeRows = doc.select("ul.episodios > li")
-        val isSeries = url.contains("/tvshows/") || episodeRows.isNotEmpty()
+        val isSeries = pageUrl.contains("/tvshows/") || episodeRows.isNotEmpty()
 
         return if (isSeries) {
             val episodes = episodeRows.mapNotNull { li ->
@@ -72,7 +113,7 @@ class Hdmovie4Provider : MainAPI() {
                     this.posterUrl = fixUrlNull(li.selectFirst("div.imagen > img")?.getImgUrl())
                 }
             }
-            newTvSeriesLoadResponse(title, url, TvType.TvSeries, episodes) {
+            newTvSeriesLoadResponse(title, pageUrl, TvType.TvSeries, episodes) {
                 this.posterUrl = poster
                 this.year = year
                 this.plot = description
@@ -81,7 +122,7 @@ class Hdmovie4Provider : MainAPI() {
                 addActorNames(actors)
             }
         } else {
-            newMovieLoadResponse(title, url, TvType.Movie, url) {
+            newMovieLoadResponse(title, pageUrl, TvType.Movie, pageUrl) {
                 this.posterUrl = poster
                 this.year = year
                 this.plot = description
@@ -99,7 +140,9 @@ class Hdmovie4Provider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
-        val doc = app.get(data).document
+        resolveDomain()
+        val pageUrl = rebase(data)
+        val doc = app.get(pageUrl).document
         var found = false
 
         val options = doc.select(
@@ -113,15 +156,15 @@ class Hdmovie4Provider : MainAPI() {
             val type = li.attr("data-type").ifBlank { "movie" }
             if (post.isBlank() || nume.isBlank() || nume == "trailer") continue
 
-            val embed = fetchEmbed(post, nume, type, data) ?: continue
-            if (loadExtractor(embed, data, subtitleCallback, callback)) found = true
+            val embed = fetchEmbed(post, nume, type, pageUrl) ?: continue
+            if (loadExtractor(embed, pageUrl, subtitleCallback, callback)) found = true
         }
 
         if (!found) {
             doc.select("div.embed iframe, iframe").forEach { iframe ->
                 val src = fixUrlNull(iframe.attr("src").ifBlank { iframe.attr("data-src") })
                 if (!src.isNullOrBlank() && !src.contains("youtube")) {
-                    if (loadExtractor(src, data, subtitleCallback, callback)) found = true
+                    if (loadExtractor(src, pageUrl, subtitleCallback, callback)) found = true
                 }
             }
         }
