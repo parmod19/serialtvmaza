@@ -49,7 +49,7 @@ class SerialTvMazaProvider : MainAPI() {
 
     private fun isEpisodeUrl(url: String): Boolean {
         val s = segments(url)
-        return s.size == 1 && s[0] !in reserved && s[0] !in channels
+        return s.size == 1 && s[0] !in reserved && s[0] !in channels && s[0] !in postCategories
     }
 
     private fun isShowUrl(url: String): Boolean {
@@ -61,6 +61,33 @@ class SerialTvMazaProvider : MainAPI() {
         URI(url).host.orEmpty().removePrefix("www.")
     } catch (e: Exception) {
         ""
+    }
+
+    private fun editDist(a: String, b: String): Int {
+        val dp = IntArray(b.length + 1) { it }
+        for (i in 1..a.length) {
+            var prev = dp[0]
+            dp[0] = i
+            for (j in 1..b.length) {
+                val tmp = dp[j]
+                dp[j] = minOf(dp[j] + 1, dp[j - 1] + 1, prev + if (a[i - 1] == b[j - 1]) 0 else 1)
+                prev = tmp
+            }
+        }
+        return dp[b.length]
+    }
+
+    /** True when the post slug starts with the same first words as the show slug (small typos allowed). */
+    private fun sameShow(slug: String, showSlug: String): Boolean {
+        val a = slug.split("-")
+        val b = showSlug.split("-")
+        val n = minOf(2, b.size)
+        if (a.size < n) return false
+        for (i in 0 until n) {
+            val tol = if (b[i].length <= 2) 0 else maxOf(1, b[i].length / 4)
+            if (a[i] != b[i] && editDist(a[i], b[i]) > tol) return false
+        }
+        return true
     }
 
     // ---------- Title helpers ----------
@@ -109,6 +136,7 @@ class SerialTvMazaProvider : MainAPI() {
                 this.posterUrl = it.poster
             }
         }
+
     private val dateInTitleRegex = Regex("""(\d{1,2})(?:st|nd|rd|th)\s+([A-Za-z]+)\s+(\d{4})""")
     private val monthNames = listOf(
         "january", "february", "march", "april", "may", "june",
@@ -123,22 +151,21 @@ class SerialTvMazaProvider : MainAPI() {
         return year * 10000 + month * 100 + day
     }
 
-    /** One card per episode, newest date first (used for the home page). */
+    /** One card per episode, newest date first. */
     private fun toEpisodeCards(items: List<Item>): List<SearchResponse> =
         items.sortedByDescending { dateKey(it.title) }.map {
             newTvSeriesSearchResponse(cleanEpisodeName(it.title), it.href, TvType.TvSeries) {
                 this.posterUrl = it.poster
             }
         }
+
     // ---------- Main page ----------
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val base = request.data.trimEnd('/')
         val url = if (page > 1) "$base/page/$page/" else request.data
         val doc = app.get(url).document
-        val items = parseItems(doc)
-        val isHome = request.data.trimEnd('/') == mainUrl.trimEnd('/')
-        val results = if (isHome) toEpisodeCards(items) else toSearchResults(items)
+        val results = toEpisodeCards(parseItems(doc))
         val hasNext = doc.select("a[href*=/page/${page + 1}/]").isNotEmpty()
         return newHomePageResponse(listOf(HomePageList(request.name, results)), hasNext)
     }
@@ -146,7 +173,6 @@ class SerialTvMazaProvider : MainAPI() {
     // ---------- Search ----------
 
     override suspend fun search(query: String): List<SearchResponse> {
-        // WordPress search; spaces encoded as %20 (multi-word handling, see knowledge base).
         val q = URLEncoder.encode(query.trim(), "UTF-8").replace("+", "%20")
         val doc = app.get("$mainUrl/?s=$q").document
         return toSearchResults(parseItems(doc))
@@ -158,9 +184,10 @@ class SerialTvMazaProvider : MainAPI() {
         var showUrl = url
         var doc = app.get(url).document
         var showTitle: String? = null
+        val epTitle = doc.title().substringBeforeLast(" - ").trim().ifBlank { null }
+        val epPoster = doc.selectFirst("meta[property=og:image]")?.attr("content")
 
         if (isEpisodeUrl(url)) {
-            // The URL came from an episode post: jump to its show category page.
             val epSlug = segments(url).firstOrNull().orEmpty()
             val showLinks = doc.select("a[href]").filter {
                 isShowUrl(it.absUrl("href")) && it.text().isNotBlank()
@@ -170,7 +197,11 @@ class SerialTvMazaProvider : MainAPI() {
             var showLink = showLinks
                 .filter { epSlug.startsWith(slugOf(it) + "-") }
                 .maxByOrNull { slugOf(it).length }
-            // 2) Fallback: article:section, only if first letters agree with the episode slug.
+            // 2) Same first words (typos allowed).
+            if (showLink == null) {
+                showLink = showLinks.firstOrNull { sameShow(epSlug, slugOf(it)) }
+            }
+            // 3) Category meta, only if first letters agree.
             if (showLink == null) {
                 val section = doc.selectFirst("meta[property=article:section]")?.attr("content")?.trim()
                 if (section != null) {
@@ -185,32 +216,34 @@ class SerialTvMazaProvider : MainAPI() {
                 showTitle = showLink.text().trim()
                 doc = app.get(showUrl).document
             } else {
-                // Could not find the show: expose this single episode.
-                val title = doc.selectFirst("h1")?.text()?.trim() ?: "Episode"
-                val poster = doc.selectFirst("meta[property=og:image]")?.attr("content")
-                return newMovieLoadResponse(cleanEpisodeName(title), url, TvType.Movie, url) {
-                    this.posterUrl = poster
+                // Not part of any show (special post): expose this single episode.
+                return newMovieLoadResponse(cleanEpisodeName(epTitle ?: "Episode"), url, TvType.Movie, url) {
+                    this.posterUrl = epPoster
                 }
             }
         }
 
         val showSlug = segments(showUrl).lastOrNull().orEmpty()
-        val slugKey = showSlug.take(8) // tolerant prefix match (site spells names inconsistently)
+        val showName = showTitle ?: showSlug.replace('-', ' ')
 
         val collected = LinkedHashMap<String, Item>()
         val knownShows = doc.select("a[href]").map { it.absUrl("href") }
             .filter { isShowUrl(it) }.map { segments(it).lastOrNull().orEmpty() }.toSet()
+
         fun isForeign(slug: String): Boolean {
             val best = knownShows.filter { slug.startsWith("$it-") }.maxByOrNull { it.length }
             return best != null && best != showSlug
         }
+
         fun addFrom(d: Document) {
-            parseItems(d)
-                .filter { !isForeign(segments(it.href).firstOrNull().orEmpty()) }
-                .forEach { collected.putIfAbsent(it.href, it) }
+            parseItems(d).filter {
+                val sg = segments(it.href).firstOrNull().orEmpty()
+                !isForeign(sg) && sameShow(sg, showSlug)
+            }.forEach { collected.putIfAbsent(it.href, it) }
         }
+
         addFrom(doc)
-        // Remaining pages are fetched in parallel instead of one after another.
+        // Remaining category pages are fetched in parallel.
         val extraDocs = (2..6).toList().amap { p ->
             try {
                 app.get("${showUrl.trimEnd('/')}/page/$p/").document
@@ -220,7 +253,25 @@ class SerialTvMazaProvider : MainAPI() {
         }
         extraDocs.filterNotNull().forEach { addFrom(it) }
 
-        val episodes = collected.values.reversed().map { item ->
+        // Episodes the site filed under another category are found through its search.
+        try {
+            val sq = URLEncoder.encode(showName, "UTF-8").replace("+", "%20")
+            addFrom(app.get("$mainUrl/?s=$sq").document)
+        } catch (e: Exception) {
+        }
+
+        // The episode that was tapped must always be in the list.
+        if (isEpisodeUrl(url) && !collected.containsKey(url)) {
+            collected[url] = Item(epTitle ?: showName, url, epPoster)
+        }
+
+        // Oldest first: the app shows the newest on top.
+        val episodes = collected.values.sortedWith(
+            compareBy<Item>(
+                { dateKey(it.title) },
+                { episodeNumRegex.find(it.title)?.groupValues?.get(1)?.toIntOrNull() ?: 0 }
+            )
+        ).map { item ->
             newEpisode(item.href) {
                 this.name = cleanEpisodeName(item.title)
                 this.episode = episodeNumRegex.find(item.title)?.groupValues?.get(1)?.toIntOrNull()
@@ -248,29 +299,48 @@ class SerialTvMazaProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val seen = HashSet<String>()
-        val doc = app.get(data).document
-        var found = extractFromPage(data, doc, seen, subtitleCallback, callback)
+        val doc = try { app.get(data).document } catch (e: Exception) { null }
+        var found = if (doc != null) extractFromPage(data, doc, seen, subtitleCallback, callback) else false
+        if (!found && doc != null) found = followHops(data, doc, seen, subtitleCallback, callback)
 
         if (!found) {
-            // Newer posts only carry a "Watch Online Full Episode - Click Here" link
-            // that opens the real page (can be on another domain such as serialtvmaza.me).
-            val hops = doc.select("a[href]").filter {
-                val t = it.text()
-                val h = it.absUrl("href")
-                t.contains("click here", ignoreCase = true) &&
-                        t.contains("full episode", ignoreCase = true) &&
-                        h.isNotBlank() && h != data && isEpisodeUrl(h)
-            }.map { it.absUrl("href") }.distinct().take(2)
-
-            for (h in hops) {
-                if (!seen.add(h)) continue
-                val hopDoc = try {
-                    app.get(h, referer = data).document
-                } catch (e: Exception) {
-                    continue
-                }
-                if (extractFromPage(h, hopDoc, seen, subtitleCallback, callback)) found = true
+            // Same post on the other mirror sites (one of them may carry the player).
+            val path = try { URI(data).path.orEmpty() } catch (e: Exception) { "" }
+            val own = hostOf(data)
+            for (h in listOf("serialtvmaza.me", "serialtvmaza.net", "serialtvmaza.sbs")) {
+                if (found) break
+                if (h == own || path.isBlank()) continue
+                val u = "https://$h$path"
+                if (!seen.add(u)) continue
+                val d2 = try { app.get(u, referer = data).document } catch (e: Exception) { continue }
+                found = extractFromPage(u, d2, seen, subtitleCallback, callback)
+                if (!found) found = followHops(u, d2, seen, subtitleCallback, callback)
             }
+        }
+        return found
+    }
+
+    /** Newer posts carry only a "... Click Here" link that opens the real page of the same episode. */
+    private suspend fun followHops(
+        pageUrl: String,
+        doc: Document,
+        seen: HashSet<String>,
+        subtitleCallback: (SubtitleFile) -> Unit,
+        callback: (ExtractorLink) -> Unit
+    ): Boolean {
+        var found = false
+        val dateTok = Regex("""\d{1,2}(?:st|nd|rd|th)-[a-z]+-\d{4}""")
+            .find(segments(pageUrl).firstOrNull().orEmpty())?.value
+        val hops = doc.select("a[href]").filter {
+            val h = it.absUrl("href")
+            h.isNotBlank() && h != pageUrl && hostOf(h).startsWith("serialtvmaza") &&
+                    it.text().contains("click here", ignoreCase = true) && isEpisodeUrl(h) &&
+                    (dateTok == null || segments(h).first().contains(dateTok))
+        }.map { it.absUrl("href") }.distinct().take(3)
+        for (h in hops) {
+            if (!seen.add(h)) continue
+            val hd = try { app.get(h, referer = pageUrl).document } catch (e: Exception) { continue }
+            if (extractFromPage(h, hd, seen, subtitleCallback, callback)) found = true
         }
         return found
     }
@@ -330,7 +400,7 @@ class SerialTvMazaProvider : MainAPI() {
     private val jsRedirectRegex =
         Regex("""(?:location(?:\.href)?\s*=\s*|location\.replace\(\s*|window\.open\(\s*)["'](https?://[^"']+)["']""")
     private val metaRefreshRegex = Regex("""(?i)url=(https?://[^"'>\s]+)""")
-    
+
     private val secretKeyRegex = Regex("""secretKey\s*=\s*["']([^"']+)["']""")
     private val encryptedRegex = Regex("""encryptedData\s*=\s*["']([0-9a-fA-F]+)["']""")
 
@@ -380,7 +450,7 @@ class SerialTvMazaProvider : MainAPI() {
         val html = res.text.replace("\\/", "/")
         val page = res.document
 
-                // 2) Iframes (same-site player pages are opened again, others go to extractors).
+        // 2) Iframes (same-site player pages are opened again, others go to extractors).
         page.select("iframe[src]").forEach {
             val src = it.absUrl("src")
             if (src.isNotBlank() && seen.add(src)) {
@@ -405,7 +475,7 @@ class SerialTvMazaProvider : MainAPI() {
             }
 
         // 4) Direct streams inside the page.
-                        (listOfNotNull(decodeHiddenStream(html)?.takeIf { it.contains(".m3u8") }) + m3u8Regex.findAll(html).map { it.value }).distinct().forEach { u ->
+        (listOfNotNull(decodeHiddenStream(html)?.takeIf { it.contains(".m3u8") }) + m3u8Regex.findAll(html).map { it.value }).distinct().forEach { u ->
             if (seen.add(u)) {
                 // Player page uses "no-referrer", so send no Referer (same as Chrome).
                 callback(
@@ -422,7 +492,7 @@ class SerialTvMazaProvider : MainAPI() {
                 found = true
             }
         }
-                (listOfNotNull(decodeHiddenStream(html)?.takeIf { it.contains(".mp4") && !it.contains(".m3u8") }) + mp4Regex.findAll(html).map { it.value }).distinct().forEach { u ->
+        (listOfNotNull(decodeHiddenStream(html)?.takeIf { it.contains(".mp4") && !it.contains(".m3u8") }) + mp4Regex.findAll(html).map { it.value }).distinct().forEach { u ->
             if (seen.add(u)) {
                 callback(
                     newExtractorLink(name, "$name - ${label.ifBlank { "MP4" }}", u, ExtractorLinkType.VIDEO) {
