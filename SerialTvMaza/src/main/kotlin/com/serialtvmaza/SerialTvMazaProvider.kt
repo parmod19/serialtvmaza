@@ -39,6 +39,9 @@ class SerialTvMazaProvider : MainAPI() {
         "$mainUrl/star-bharat/" to "Star Bharat",
     )
 
+    // Categories whose pages list movie/event posts directly.
+    private val postCategories = setOf("movies", "awards-concerts")
+
     // ---------- URL helpers ----------
 
     private fun segments(url: String): List<String> = try {
