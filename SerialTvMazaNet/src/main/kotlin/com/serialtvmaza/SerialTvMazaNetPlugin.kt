@@ -8,5 +8,6 @@ import com.lagradost.cloudstream3.plugins.Plugin
 class SerialTvMazaNetPlugin : Plugin() {
     override fun load(context: Context) {
         registerMainAPI(SerialTvMazaNetProvider())
+        registerExtractorAPI(VkSpeed())
     }
 }
