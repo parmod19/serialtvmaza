@@ -3,7 +3,6 @@ package com.serialtvmaza
 import com.fasterxml.jackson.annotation.JsonProperty
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
-import kotlinx.coroutines.delay
 import org.jsoup.nodes.Element
 import java.net.URI
 import java.net.URLEncoder
@@ -21,6 +20,9 @@ class DesiTashanProvider : MainAPI() {
 
     // Show page ke kitne pages tak episodes laane hain (1 page = lagbhag 35 episodes)
     private val maxEpisodePages = 6
+
+    // Full Episode (joda hua) ke liye har part ki andaazi lambai, asli lambai tak hi chalega
+    private val partDurationUs = 7_200_000_000L
 
     private val episodeUrlRegex = Regex("/[0-9a-f]{16}/?$")
 
@@ -169,7 +171,7 @@ class DesiTashanProvider : MainAPI() {
         for (i in 1..3) {
             html = app.get(data, referer = "$mainUrl/").text
             if (html.contains("getlink.php")) break
-            delay(1500)
+            Thread.sleep(1500)
         }
 
         // getlink ka host badal sakta hai, isliye koi bhi host chalega
@@ -186,7 +188,8 @@ class DesiTashanProvider : MainAPI() {
             .sortedBy { partOrder(it.first) }
             .toList()
 
-        var found = false
+        // Pehle saare parts ke video link jama karo: (label, videoUrl)
+        val parts = ArrayList<Pair<String, String>>()
         for ((i, t) in tokens.withIndex()) {
             try {
                 val meta = app.get(
@@ -199,19 +202,37 @@ class DesiTashanProvider : MainAPI() {
                 val file = src.file ?: continue
                 val videoUrl = URI(playerBase).resolve(file).toString()
                 val label = src.title?.takeIf { it.isNotBlank() } ?: "Part ${i + 1}"
-
-                callback(
-                    newExtractorLink(this.name, "$name $label", videoUrl, ExtractorLinkType.VIDEO) {
-                        this.referer = playerOrigin
-                        this.quality = Qualities.P720.value
-                    }
-                )
-                found = true
+                parts.add(label to videoUrl)
             } catch (e: Exception) {
                 // is part mein dikkat, agla try karo
             }
         }
-        return found
+        if (parts.isEmpty()) return false
+
+        // Sabse upar: saare parts ek ke baad ek apne aap chalenge
+        if (parts.size > 1) {
+            callback(
+                ExtractorLinkPlayList(
+                    source = this.name,
+                    name = "${this.name} Full Episode (${parts.size} parts)",
+                    playlist = parts.map { PlayListItem(it.second, partDurationUs) },
+                    referer = playerOrigin,
+                    quality = Qualities.P720.value,
+                    type = ExtractorLinkType.VIDEO
+                )
+            )
+        }
+
+        // Neeche: har part alag se bhi (fallback)
+        for ((label, videoUrl) in parts) {
+            callback(
+                newExtractorLink(this.name, "${this.name} $label", videoUrl, ExtractorLinkType.VIDEO) {
+                    this.referer = playerOrigin
+                    this.quality = Qualities.P720.value
+                }
+            )
+        }
+        return true
     }
 
     // ---------------- Helpers ----------------
