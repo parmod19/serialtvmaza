@@ -9,4 +9,8 @@
 .externalNativeBuild
 .cxx
 local.properties
-.vscode
+.vscode*.html
+ds_*
+unpack.js
+dc_m3u8.txt
+*.py
