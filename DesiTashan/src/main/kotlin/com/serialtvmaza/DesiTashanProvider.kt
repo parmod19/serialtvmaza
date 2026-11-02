@@ -19,10 +19,7 @@ class DesiTashanProvider : MainAPI() {
     private val playerOrigin = "https://workers.showdetails.org/"
 
     // Show page ke kitne pages tak episodes laane hain (1 page = lagbhag 35 episodes)
-    private val maxEpisodePages = 6
-
-    // Full Episode (joda hua) ke liye har part ki andaazi lambai, asli lambai tak hi chalega
-    private val partDurationUs = 7_200_000_000L
+    private val maxEpisodePages = 5
 
     private val episodeUrlRegex = Regex("/[0-9a-f]{16}/?$")
 
@@ -124,14 +121,37 @@ class DesiTashanProvider : MainAPI() {
             unique.reversed()
         }
 
+        // Sabse naye episode se pata karo ki ek episode ke kitne parts hote hain
+        val partCount = if (unique.isNotEmpty()) {
+            try {
+                fetchTokens(unique.first().href).size.coerceIn(1, 8)
+            } catch (e: Exception) {
+                1
+            }
+        } else 1
+
         val poster = fixUrlNull(first.selectFirst("meta[property=og:image]")?.attr("content"))
             ?: unique.firstOrNull()?.poster
 
-        val episodes = ordered.map { c ->
-            newEpisode(c.href) {
-                this.name = c.date ?: c.title
-                this.episode = c.epNo
-                this.posterUrl = c.poster
+        // Har part ek alag "episode" banta hai, taaki app ka Autoplay next episode chale
+        val episodes = ArrayList<Episode>()
+        var n = 0
+        for (c in ordered) {
+            for (p in 1..partCount) {
+                n++
+                val label = listOfNotNull(
+                    c.epNo?.let { "Ep $it" },
+                    c.date,
+                    if (partCount > 1) "Part $p" else null
+                ).joinToString(" • ").ifBlank { c.title }
+                val number = n
+                episodes.add(
+                    newEpisode("${c.href}#part=$p") {
+                        this.name = label
+                        this.episode = number
+                        this.posterUrl = c.poster
+                    }
+                )
             }
         }
 
@@ -167,9 +187,51 @@ class DesiTashanProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        val target = Regex("#part=(\\d+)$").find(data)?.groupValues?.get(1)?.toIntOrNull()
+        val pageUrl = data.substringBefore("#part=")
+
+        val tokens = fetchTokens(pageUrl)
+        if (tokens.isEmpty()) return false
+
+        // target diya ho to sirf wahi part, nahi to saare parts alag-alag
+        val selected: List<Pair<Int, Pair<String, String>>> = if (target != null) {
+            listOfNotNull(tokens.getOrNull(target - 1)?.let { target to it })
+        } else {
+            tokens.mapIndexed { i, t -> (i + 1) to t }
+        }
+
+        var found = false
+        for ((idx, t) in selected) {
+            try {
+                val meta = app.get(
+                    "${playerBase}media_meta.php",
+                    params = mapOf("v" to t.second, "type" to "player"),
+                    headers = mapOf("X-Requested-With" to "XMLHttpRequest"),
+                    referer = playerOrigin
+                ).parsedSafe<MediaMeta>()
+                val file = meta?.source?.file ?: continue
+                val videoUrl = URI(playerBase).resolve(file).toString()
+                val label = if (tokens.size == 1) "Full Episode" else "Part $idx"
+
+                callback(
+                    newExtractorLink(this.name, "${this.name} $label", videoUrl, ExtractorLinkType.VIDEO) {
+                        this.referer = playerOrigin
+                        this.quality = Qualities.P720.value
+                    }
+                )
+                found = true
+            } catch (e: Exception) {
+                // is part mein dikkat, agla try karo
+            }
+        }
+        return found
+    }
+
+    // Episode page se getlink ke tokens (v, part2, part3...) nikalta hai
+    private suspend fun fetchTokens(pageUrl: String): List<Pair<String, String>> {
         var html = ""
         for (i in 1..3) {
-            html = app.get(data, referer = "$mainUrl/").text
+            html = app.get(pageUrl, referer = "$mainUrl/").text
             if (html.contains("getlink.php")) break
             Thread.sleep(1500)
         }
@@ -179,60 +241,14 @@ class DesiTashanProvider : MainAPI() {
             .findAll(html).map { it.value.replace("&amp;", "&") }.toList()
         val link = links.firstOrNull { it.contains("type=jwplayer") }
             ?: links.firstOrNull()
-            ?: return false
+            ?: return emptyList()
 
-        val tokens = Regex("[?&](v|part\\d+)=([^&\\s\"']+)")
+        return Regex("[?&](v|part\\d+)=([^&\\s\"']+)")
             .findAll(link)
             .map { it.groupValues[1] to pctDecode(it.groupValues[2]) }
             .distinctBy { it.second }
             .sortedBy { partOrder(it.first) }
             .toList()
-
-        // Pehle saare parts ke video link jama karo: (label, videoUrl)
-        val parts = ArrayList<Pair<String, String>>()
-        for ((i, t) in tokens.withIndex()) {
-            try {
-                val meta = app.get(
-                    "${playerBase}media_meta.php",
-                    params = mapOf("v" to t.second, "type" to "player"),
-                    headers = mapOf("X-Requested-With" to "XMLHttpRequest"),
-                    referer = playerOrigin
-                ).parsedSafe<MediaMeta>()
-                val src = meta?.source ?: continue
-                val file = src.file ?: continue
-                val videoUrl = URI(playerBase).resolve(file).toString()
-                val label = src.title?.takeIf { it.isNotBlank() } ?: "Part ${i + 1}"
-                parts.add(label to videoUrl)
-            } catch (e: Exception) {
-                // is part mein dikkat, agla try karo
-            }
-        }
-        if (parts.isEmpty()) return false
-
-        // Sabse upar: saare parts ek ke baad ek apne aap chalenge
-        if (parts.size > 1) {
-            callback(
-                ExtractorLinkPlayList(
-                    source = this.name,
-                    name = "${this.name} Full Episode (${parts.size} parts)",
-                    playlist = parts.map { PlayListItem(it.second, partDurationUs) },
-                    referer = playerOrigin,
-                    quality = Qualities.P720.value,
-                    type = ExtractorLinkType.VIDEO
-                )
-            )
-        }
-
-        // Neeche: har part alag se bhi (fallback)
-        for ((label, videoUrl) in parts) {
-            callback(
-                newExtractorLink(this.name, "${this.name} $label", videoUrl, ExtractorLinkType.VIDEO) {
-                    this.referer = playerOrigin
-                    this.quality = Qualities.P720.value
-                }
-            )
-        }
-        return true
     }
 
     // ---------------- Helpers ----------------
