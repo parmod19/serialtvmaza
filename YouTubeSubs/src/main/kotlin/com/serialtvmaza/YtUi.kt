@@ -23,13 +23,15 @@ object YtUi {
         names.forEach { items += if (it == active) "✔ $it" else it }
         items += "➕ Login with Google"
         items += "📋 Paste cookies manually"
+        items += "⬇ Auto-download settings"
         AlertDialog.Builder(ctx)
             .setTitle("YouTube Subs accounts")
             .setItems(items.toTypedArray()) { _, which ->
                 when {
                     which < names.size -> accountMenu(ctx, names[which])
                     which == names.size -> showLogin(ctx)
-                    else -> showPaste(ctx)
+                    which == names.size + 1 -> showPaste(ctx)
+                    else -> YtDl.showSettings(ctx)
                 }
             }
             .setNegativeButton("Close", null)

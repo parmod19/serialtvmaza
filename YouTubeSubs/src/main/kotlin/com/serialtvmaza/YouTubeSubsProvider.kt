@@ -163,11 +163,32 @@ class YouTubeSubsProvider : MainAPI() {
         val out = Parsed()
         walk(JSONObject(res), out)
         continuation = out.token
+        if (page <= 1) YtDl.onFeed(out.items.map { it.url to it.name })
 
         if (out.items.isEmpty() && page <= 1) {
             throw ErrorLoadingException("No videos found. Session may have expired - login again from plugin settings.")
         }
         return newHomePageResponse(request.name, out.items, out.token != null)
+    }
+
+    // ---------- auto-download support ----------
+
+    suspend fun feedForDownload(): List<Pair<String, String>> {
+        return try {
+            val cookie = YtStore.activeCookie() ?: return emptyList()
+            val ver = cver(cookie)
+            val body = JSONObject().put("context", webContext(ver)).put("browseId", "FEsubscriptions")
+            val res = app.post(
+                "https://www.youtube.com/youtubei/v1/browse?prettyPrint=false",
+                headers = authHeaders(cookie, ver),
+                requestBody = jsonBody(body)
+            ).text
+            val out = Parsed()
+            walk(JSONObject(res), out)
+            out.items.map { it.url to it.name }
+        } catch (e: Exception) {
+            emptyList()
+        }
     }
 
     // ---------- details ----------
@@ -241,14 +262,14 @@ class YouTubeSubsProvider : MainAPI() {
             )
             try {
                 M3u8Helper.generateM3u8(name, hls, "https://www.youtube.com/", headers = h)
-                    .forEach(callback)
+                    .forEach { l -> val cap = YtDl.playMax(); if (cap <= 0 || l.quality <= cap) callback(l) }
             } catch (e: Exception) {
             }
             found = true
         }
 
-        // 2) fallback: Android VR client -> muxed formats
-        if (!found) {
+        // 2) Android VR client -> muxed mp4 formats (audio+video, good for download)
+        run {
             val vrClient = JSONObject()
                 .put("clientName", "ANDROID_VR").put("clientVersion", "1.60.19")
                 .put("deviceMake", "Oculus").put("deviceModel", "Quest 3")
@@ -263,7 +284,7 @@ class YouTubeSubsProvider : MainAPI() {
                     if (u.isBlank()) continue
                     val hgt = f.optInt("height", 0)
                     callback(
-                        newExtractorLink(name, "$name ${hgt}p", u) {
+                        newExtractorLink(name, "$name ${hgt}p (audio+video mp4)", u) {
                             this.referer = "https://www.youtube.com/"
                             this.quality = if (hgt > 0) hgt else Qualities.Unknown.value
                             this.headers = mapOf("User-Agent" to VR_UA)
