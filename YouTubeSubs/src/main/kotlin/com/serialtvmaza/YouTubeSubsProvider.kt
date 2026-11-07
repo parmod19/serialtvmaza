@@ -94,7 +94,7 @@ class YouTubeSubsProvider : MainAPI() {
         if (id.isBlank() || title.isBlank() || !out.seen.add(id)) return
         val label = if (channel.isBlank()) title else "$title • $channel"
         out.items += newMovieSearchResponse(label, "$mainUrl/watch?v=$id", TvType.Others) {
-            this.posterUrl = "https://i.ytimg.com/vi/$id/hqdefault.jpg"
+            this.posterUrl = "https://i.ytimg.com/vi/$id/mqdefault.jpg"
         }
     }
 
@@ -167,7 +167,7 @@ class YouTubeSubsProvider : MainAPI() {
         if (out.items.isEmpty() && page <= 1) {
             throw ErrorLoadingException("No videos found. Session may have expired - login again from plugin settings.")
         }
-        return newHomePageResponse(request.name, out.items, out.token != null)
+        return newHomePageResponse(HomePageList(request.name, out.items, true), out.token != null)
     }
 
     // ---------- auto-download support ----------
