@@ -260,6 +260,24 @@ class YouTubeSubsProvider : MainAPI() {
         return !u.contains("acont") || u.contains("acont%3doriginal") || u.contains("acont=original")
     }
 
+    // height label (144..4320) of a YouTube stream: from the itag in the url, else guessed from width (16:9)
+    private fun linkHeight(url: String, width: Int): Int {
+        val itag = Regex("[?&/]itag[=/](\\d+)").find(url)?.groupValues?.get(1)?.toIntOrNull()
+        val h: Int? = when (itag) {
+            160, 278, 330, 394, 694 -> 144
+            133, 242, 331, 395, 695 -> 240
+            134, 243, 332, 396, 696, 18 -> 360
+            135, 244, 333, 397, 697 -> 480
+            136, 247, 334, 398, 698, 298, 302, 22 -> 720
+            137, 248, 335, 399, 699, 299, 303 -> 1080
+            264, 271, 336, 400, 700, 304, 308 -> 1440
+            266, 313, 337, 401, 701, 305, 315 -> 2160
+            272, 402, 702 -> 4320
+            else -> null
+        }
+        return h ?: (width * 9 / 16)
+    }
+
     // ---------- playback ----------
 
     private suspend fun player(id: String, client: JSONObject, ua: String, cname: String, cver: String): JSONObject? {
@@ -360,7 +378,7 @@ class YouTubeSubsProvider : MainAPI() {
         // 3) CloudStream built-in YouTube extractor, capped to the playback max quality
         val capB = YtSettings.playMax()
         val builtIn = loadExtractor("https://www.youtube.com/watch?v=$id", subtitleCallback) { l ->
-            val hh = l.quality * 9 / 16
+            val hh = linkHeight(l.url, l.quality)
             if (capB <= 0 || hh <= capB) {
                 val orig = l.audioTracks.filter { isOriginalAudio(it.url) }
                 if (orig.isNotEmpty() && orig.size != l.audioTracks.size) l.audioTracks = orig
