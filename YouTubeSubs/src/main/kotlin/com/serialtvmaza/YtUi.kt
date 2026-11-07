@@ -24,6 +24,7 @@ object YtUi {
         items += "➕ Login with Google"
         items += "📋 Paste cookies manually"
         items += "⚙ Playback settings"
+        items += "🕒 Watch Later list"
         AlertDialog.Builder(ctx)
             .setTitle("YouTube Subs accounts")
             .setItems(items.toTypedArray()) { _, which ->
@@ -31,7 +32,8 @@ object YtUi {
                     which < names.size -> accountMenu(ctx, names[which])
                     which == names.size -> showLogin(ctx)
                     which == names.size + 1 -> showPaste(ctx)
-                    else -> YtSettings.showSettings(ctx)
+                    which == names.size + 2 -> YtSettings.showSettings(ctx)
+                    else -> YtWatchLater.showManage(ctx)
                 }
             }
             .setNegativeButton("Close", null)

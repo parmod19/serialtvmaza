@@ -6,6 +6,8 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.RequestBody.Companion.toRequestBody
 import org.json.JSONArray
 import org.json.JSONObject
+import java.net.URLDecoder
+import java.net.URLEncoder
 
 class YouTubeSubsProvider : MainAPI() {
     override var mainUrl = "https://www.youtube.com"
@@ -14,7 +16,7 @@ class YouTubeSubsProvider : MainAPI() {
     override var lang = "en"
     override val hasDownloadSupport = true
     override val supportedTypes = setOf(TvType.Others)
-    override val mainPage = mainPageOf("subs" to "Subscriptions")
+    override val mainPage = mainPageOf("subs" to "Subscriptions", "wl" to "Watch Later")
 
     private var continuation: String? = null
     private var clientVersion: String? = null
@@ -139,6 +141,15 @@ class YouTubeSubsProvider : MainAPI() {
     // ---------- main page: subscriptions feed ----------
 
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse? {
+        if (request.data == "wl") {
+            if (page > 1) return newHomePageResponse(HomePageList(request.name, emptyList<SearchResponse>(), true), false)
+            val cards = YtWatchLater.list().map { (wid, wtitle) ->
+                newMovieSearchResponse(wtitle, "$mainUrl/watch?v=$wid&yswl=1", TvType.Others) {
+                    this.posterUrl = "https://i.ytimg.com/vi/$wid/mqdefault.jpg"
+                }
+            }
+            return newHomePageResponse(HomePageList(request.name, cards, true), false)
+        }
         val cookie = YtStore.activeCookie()
             ?: throw ErrorLoadingException(
                 "Login required: Settings > Extensions > Downloaded > YouTube Subs > Login with Google"
@@ -194,6 +205,7 @@ class YouTubeSubsProvider : MainAPI() {
 
     override suspend fun load(url: String): LoadResponse {
         val id = videoId(url) ?: throw ErrorLoadingException("Invalid YouTube url")
+        if (url.contains("yswl=1")) return loadWatchLater(id, url)
         val watch = "$mainUrl/watch?v=$id"
         val info = try {
             JSONObject(app.get("https://www.youtube.com/oembed?url=$watch&format=json").text)
@@ -202,10 +214,50 @@ class YouTubeSubsProvider : MainAPI() {
         }
         val title = info?.optString("title", "").orEmpty().ifBlank { "YouTube video" }
         val author = info?.optString("author_name", "").orEmpty()
-        return newMovieLoadResponse(title, watch, TvType.Others, watch) {
-            this.posterUrl = "https://i.ytimg.com/vi/$id/hqdefault.jpg"
+        val thumb = "https://i.ytimg.com/vi/$id/hqdefault.jpg"
+        val inWl = YtWatchLater.contains(id)
+        val toggleLabel = if (inWl) "✔ In Watch Later (tap to remove)" else "⭐ Add to Watch Later"
+        val toggleData = "ytwl://toggle/$id?t=" + URLEncoder.encode(title, "UTF-8")
+        val episodes = listOf(
+            newEpisode(watch) {
+                this.name = "▶ Play video"
+                this.episode = 1
+                this.posterUrl = thumb
+            },
+            newEpisode(toggleData) {
+                this.name = toggleLabel
+                this.episode = 2
+                this.posterUrl = thumb
+            }
+        )
+        return newTvSeriesLoadResponse(title, watch, TvType.Others, episodes) {
+            this.posterUrl = thumb
             this.plot = if (author.isBlank()) null else "Channel: $author"
         }
+    }
+
+    private suspend fun loadWatchLater(id: String, url: String): LoadResponse {
+        val all = YtWatchLater.list()
+        val start = all.indexOfFirst { it.first == id }.let { if (it < 0) 0 else it }
+        val ordered = all.drop(start) + all.take(start)
+        if (ordered.isEmpty()) throw ErrorLoadingException("Watch Later is empty")
+        val episodes = ordered.mapIndexed { i, p ->
+            newEpisode("$mainUrl/watch?v=${p.first}") {
+                this.name = p.second
+                this.episode = i + 1
+                this.posterUrl = "https://i.ytimg.com/vi/${p.first}/mqdefault.jpg"
+            }
+        }
+        return newTvSeriesLoadResponse("Watch Later", url, TvType.Others, episodes) {
+            this.posterUrl = "https://i.ytimg.com/vi/${ordered.first().first}/hqdefault.jpg"
+            this.plot = "Plays your saved videos one after another"
+        }
+    }
+
+    // auto-dubbed / secondary audio tracks carry acont=dubbed... in the url; keep only the original
+    private fun isOriginalAudio(url: String): Boolean {
+        val u = url.lowercase()
+        return !u.contains("acont") || u.contains("acont%3doriginal") || u.contains("acont=original")
     }
 
     // ---------- playback ----------
@@ -239,6 +291,17 @@ class YouTubeSubsProvider : MainAPI() {
         subtitleCallback: (SubtitleFile) -> Unit,
         callback: (ExtractorLink) -> Unit
     ): Boolean {
+        if (data.startsWith("ytwl://toggle/")) {
+            val tid = data.substringAfter("ytwl://toggle/").substringBefore("?")
+            val tt = try {
+                URLDecoder.decode(data.substringAfter("?t=", ""), "UTF-8")
+            } catch (e: Exception) {
+                ""
+            }
+            val added = YtWatchLater.toggle(tid, tt.ifBlank { tid })
+            YtWatchLater.toast(if (added) "Added to Watch Later ✔" else "Removed from Watch Later")
+            return false
+        }
         val id = videoId(data) ?: return false
         var found = false
 
@@ -298,7 +361,11 @@ class YouTubeSubsProvider : MainAPI() {
         val capB = YtSettings.playMax()
         val builtIn = loadExtractor("https://www.youtube.com/watch?v=$id", subtitleCallback) { l ->
             val hh = l.quality * 9 / 16
-            if (capB <= 0 || hh <= capB) callback(l)
+            if (capB <= 0 || hh <= capB) {
+                val orig = l.audioTracks.filter { isOriginalAudio(it.url) }
+                if (orig.isNotEmpty() && orig.size != l.audioTracks.size) l.audioTracks = orig
+                callback(l)
+            }
         }
         return found || builtIn
     }
