@@ -28,6 +28,7 @@ import java.io.FileOutputStream
 import java.nio.ByteBuffer
 import java.util.concurrent.TimeUnit
 import kotlin.concurrent.thread
+import com.lagradost.cloudstream3.utils.loadExtractor
 
 object YtDl {
     private const val VR_UA =
@@ -489,7 +490,8 @@ object YtDl {
             "Playback max quality: ${if (playMax() <= 0) "Unlimited" else playMax().toString() + "p"} (tap to change)",
             "Check feed now",
             "Download latest feed video now (test)",
-            "Reset: forget already-seen videos"
+            "Reset: forget already-seen videos",
+            "Debug: show why download fails (latest video)"
         )
         AlertDialog.Builder(ctx)
             .setTitle("Auto-download settings")
@@ -517,15 +519,104 @@ object YtDl {
                         downloadLatestNow()
                         showSettings(ctx)
                     }
-                    else -> {
+                    6 -> {
                         prefs?.edit()?.remove("seen")?.putBoolean("baselined", false)?.apply()
                         toast("Reset done")
                         showSettings(ctx)
                     }
+                    else -> debugLatest(ctx)
                 }
             }
             .setNegativeButton("Close", null)
             .show()
+    }
+
+    private fun describe(label: String, j: JSONObject?): String {
+        if (j == null) return label + ": no response\n\n"
+        val ps = j.optJSONObject("playabilityStatus")
+        val status = ps?.optString("status", "?") ?: "?"
+        val reason = ps?.optString("reason", "") ?: ""
+        val sd = j.optJSONObject("streamingData")
+        val f = sd?.optJSONArray("formats")
+        val a = sd?.optJSONArray("adaptiveFormats")
+        var fUrl = 0
+        var aUrl = 0
+        val hs = ArrayList<String>()
+        if (f != null) {
+            for (i in 0 until f.length()) {
+                val o = f.optJSONObject(i) ?: continue
+                if (o.optString("url", "").isNotBlank()) {
+                    fUrl++
+                    hs.add(o.optInt("height", 0).toString() + "p")
+                }
+            }
+        }
+        if (a != null) {
+            for (i in 0 until a.length()) {
+                val o = a.optJSONObject(i) ?: continue
+                if (o.optString("url", "").isNotBlank()) aUrl++
+            }
+        }
+        val hls = (sd?.optString("hlsManifestUrl", "") ?: "").isNotBlank()
+        return label + ": " + status + " " + reason.take(80) + "\n" +
+            "  mp4 formats with url: " + fUrl + "/" + (f?.length() ?: 0) + " " + hs.joinToString(",") + "\n" +
+            "  adaptive with url: " + aUrl + "/" + (a?.length() ?: 0) + "\n" +
+            "  hls: " + hls + "\n\n"
+    }
+
+    fun debugLatest(ctx: Context) {
+        val p = provider
+        if (p == null) {
+            toast("Plugin not ready")
+            return
+        }
+        toast("Checking latest video...")
+        thread(isDaemon = true) {
+            val sb = StringBuilder()
+            try {
+                val items = blocking { p.feedForDownload() }
+                val first = items.firstOrNull()
+                val id = first?.let { idOf(it.first) }
+                if (id == null) {
+                    sb.append("Feed empty or not logged in\n")
+                } else {
+                    sb.append("Video: " + id + "\n\n")
+                    val vr = JSONObject()
+                        .put("clientName", "ANDROID_VR").put("clientVersion", "1.60.19")
+                        .put("deviceMake", "Oculus").put("deviceModel", "Quest 3")
+                        .put("osName", "Android").put("osVersion", "12L")
+                        .put("androidSdkVersion", 32).put("hl", "en").put("gl", "IN")
+                    sb.append(describe("ANDROID_VR", playerJson(id, vr, VR_UA, "28", "1.60.19")))
+                    val ios = JSONObject()
+                        .put("clientName", "IOS").put("clientVersion", "19.45.4")
+                        .put("deviceMake", "Apple").put("deviceModel", "iPhone16,2")
+                        .put("osName", "iPhone").put("osVersion", "18.1.0.22B83")
+                        .put("hl", "en").put("gl", "IN")
+                    sb.append(describe("IOS", playerJson(id, ios, IOS_UA, "5", "19.45.4")))
+                    val links = ArrayList<String>()
+                    try {
+                        blocking {
+                            loadExtractor("https://www.youtube.com/watch?v=" + id, { _ -> }) { l ->
+                                links.add(l.name + " | " + l.quality + " | " + l.type)
+                            }
+                        }
+                    } catch (e: Throwable) {
+                        links.add("error: " + e.message)
+                    }
+                    sb.append("Built-in extractor links (" + links.size + "):\n")
+                    links.take(25).forEach { sb.append("  " + it + "\n") }
+                }
+            } catch (e: Throwable) {
+                sb.append("Error: " + e.message)
+            }
+            ui.post {
+                AlertDialog.Builder(ctx)
+                    .setTitle("Debug info")
+                    .setMessage(sb.toString())
+                    .setPositiveButton("OK", null)
+                    .show()
+            }
+        }
     }
 
     private fun pickQuality(ctx: Context) {
