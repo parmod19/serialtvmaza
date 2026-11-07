@@ -12,7 +12,7 @@ class YouTubeSubsProvider : MainAPI() {
     override var name = "YouTube Subs"
     override val hasMainPage = true
     override var lang = "en"
-    override val hasDownloadSupport = false
+    override val hasDownloadSupport = true
     override val supportedTypes = setOf(TvType.Others)
     override val mainPage = mainPageOf("subs" to "Subscriptions")
 
