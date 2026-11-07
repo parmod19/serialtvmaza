@@ -8,10 +8,8 @@ import com.lagradost.cloudstream3.plugins.Plugin
 class YouTubeSubsPlugin : Plugin() {
     override fun load(context: Context) {
         YtStore.init(context)
-        YtDl.init(context)
-        val provider = YouTubeSubsProvider()
-        registerMainAPI(provider)
-        YtDl.start(provider)
+        YtSettings.init(context)
+        registerMainAPI(YouTubeSubsProvider())
         openSettings = { ctx -> YtUi.showAccounts(ctx) }
     }
 }

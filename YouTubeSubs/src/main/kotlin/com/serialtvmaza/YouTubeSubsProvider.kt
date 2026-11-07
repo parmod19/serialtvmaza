@@ -163,7 +163,6 @@ class YouTubeSubsProvider : MainAPI() {
         val out = Parsed()
         walk(JSONObject(res), out)
         continuation = out.token
-        if (page <= 1) YtDl.onFeed(out.items.map { it.url to it.name })
 
         if (out.items.isEmpty() && page <= 1) {
             throw ErrorLoadingException("No videos found. Session may have expired - login again from plugin settings.")
@@ -262,7 +261,7 @@ class YouTubeSubsProvider : MainAPI() {
             )
             try {
                 M3u8Helper.generateM3u8(name, hls, "https://www.youtube.com/", headers = h)
-                    .forEach { l -> val cap = YtDl.playMax(); if (cap <= 0 || l.quality <= cap) callback(l) }
+                    .forEach { l -> val cap = YtSettings.playMax(); if (cap <= 0 || l.quality <= cap) callback(l) }
             } catch (e: Exception) {
             }
             found = true
@@ -296,9 +295,10 @@ class YouTubeSubsProvider : MainAPI() {
         }
 
         // 3) CloudStream built-in YouTube extractor, capped to the playback max quality
-        val capB = YtDl.playMax()
+        val capB = YtSettings.playMax()
         val builtIn = loadExtractor("https://www.youtube.com/watch?v=$id", subtitleCallback) { l ->
-            if (capB <= 0 || l.quality <= capB) callback(l)
+            val hh = l.quality * 9 / 16
+            if (capB <= 0 || hh <= capB) callback(l)
         }
         return found || builtIn
     }
