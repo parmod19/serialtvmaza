@@ -295,10 +295,11 @@ class YouTubeSubsProvider : MainAPI() {
             }
         }
 
-        // 3) last resort: CloudStream built-in extractors
-        if (!found) {
-            found = loadExtractor("https://www.youtube.com/watch?v=$id", subtitleCallback, callback)
+        // 3) CloudStream built-in YouTube extractor, capped to the playback max quality
+        val capB = YtDl.playMax()
+        val builtIn = loadExtractor("https://www.youtube.com/watch?v=$id", subtitleCallback) { l ->
+            if (capB <= 0 || l.quality <= capB) callback(l)
         }
-        return found
+        return found || builtIn
     }
 }
