@@ -204,8 +204,28 @@ class YouTubeSubsProvider : MainAPI() {
     // ---------- details ----------
 
     override suspend fun load(url: String): LoadResponse {
-        val id = videoId(url) ?: throw ErrorLoadingException("Invalid YouTube url")
-        if (url.contains("yswl=1")) return loadWatchLater(id, url)
+        var realUrl = url
+        val isAdd = url.startsWith("ytwl://add/")
+        val isRemove = url.startsWith("ytwl://remove/")
+        if (isAdd || isRemove) {
+            val rest = url.substringAfter(if (isAdd) "ytwl://add/" else "ytwl://remove/")
+            val aid = rest.substringBefore("?")
+            val at = try {
+                URLDecoder.decode(rest.substringAfter("?t=", ""), "UTF-8")
+            } catch (e: Exception) {
+                ""
+            }
+            if (isAdd) {
+                if (!YtWatchLater.contains(aid)) YtWatchLater.toggle(aid, at.ifBlank { aid })
+                YtWatchLater.toast("Added to Watch Later ✔ (" + YtWatchLater.list().size + " saved)")
+            } else {
+                if (YtWatchLater.contains(aid)) YtWatchLater.toggle(aid, "")
+                YtWatchLater.toast("Removed from Watch Later")
+            }
+            realUrl = "$mainUrl/watch?v=$aid"
+        }
+        val id = videoId(realUrl) ?: throw ErrorLoadingException("Invalid YouTube url")
+        if (realUrl.contains("yswl=1")) return loadWatchLater(id, realUrl)
         val watch = "$mainUrl/watch?v=$id"
         val info = try {
             JSONObject(app.get("https://www.youtube.com/oembed?url=$watch&format=json").text)
@@ -216,23 +236,20 @@ class YouTubeSubsProvider : MainAPI() {
         val author = info?.optString("author_name", "").orEmpty()
         val thumb = "https://i.ytimg.com/vi/$id/hqdefault.jpg"
         val inWl = YtWatchLater.contains(id)
-        val toggleLabel = if (inWl) "✔ In Watch Later (tap to remove)" else "⭐ Add to Watch Later"
-        val toggleData = "ytwl://toggle/$id?t=" + URLEncoder.encode(title, "UTF-8")
-        val episodes = listOf(
-            newEpisode(watch) {
-                this.name = "▶ Play video"
-                this.episode = 1
-                this.posterUrl = thumb
-            },
-            newEpisode(toggleData) {
-                this.name = toggleLabel
-                this.episode = 2
+        val enc = URLEncoder.encode(title, "UTF-8")
+        val actionCard = if (inWl) {
+            newMovieSearchResponse("🗑 Remove from Watch Later", "ytwl://remove/$id?t=$enc", TvType.Others) {
                 this.posterUrl = thumb
             }
-        )
-        return newTvSeriesLoadResponse(title, watch, TvType.Others, episodes) {
+        } else {
+            newMovieSearchResponse("⭐ Add to Watch Later", "ytwl://add/$id?t=$enc", TvType.Others) {
+                this.posterUrl = thumb
+            }
+        }
+        return newMovieLoadResponse(title, watch, TvType.Others, watch) {
             this.posterUrl = thumb
             this.plot = if (author.isBlank()) null else "Channel: $author"
+            this.recommendations = listOf(actionCard)
         }
     }
 
