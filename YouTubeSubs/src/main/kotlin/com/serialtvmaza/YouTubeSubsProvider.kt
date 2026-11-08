@@ -204,6 +204,11 @@ class YouTubeSubsProvider : MainAPI() {
     // ---------- details ----------
 
     override suspend fun load(url: String): LoadResponse {
+        if (url.contains("ytwl://list/")) {
+            val first = YtWatchLater.list().firstOrNull()?.first
+                ?: throw ErrorLoadingException("Watch Later is empty")
+            return loadWatchLater(first, "$mainUrl/watch?v=$first&yswl=1")
+        }
         var realUrl = url
         val isAdd = url.contains("ytwl://add/")
         val isRemove = url.contains("ytwl://remove/")
@@ -246,10 +251,14 @@ class YouTubeSubsProvider : MainAPI() {
                 this.posterUrl = thumb
             }
         }
+        val wlCount = YtWatchLater.list().size
+        val listCard = newMovieSearchResponse("🕒 Open Watch Later ($wlCount)", "ytwl://list/", TvType.Others) {
+            this.posterUrl = thumb
+        }
         return newMovieLoadResponse(title, watch, TvType.Others, watch) {
             this.posterUrl = thumb
             this.plot = if (author.isBlank()) null else "Channel: $author"
-            this.recommendations = listOf(actionCard)
+            this.recommendations = listOf(actionCard, listCard)
         }
     }
 
