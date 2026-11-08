@@ -325,6 +325,23 @@ class YouTubeSubsProvider : MainAPI() {
         return h ?: (width * 9 / 16)
     }
 
+    private fun audioItag2(url: String): Int {
+        return Regex("[?&/]itag[=/](\\d+)").find(url)?.groupValues?.get(1)?.toIntOrNull() ?: 0
+    }
+
+    // exactly one audio track: the original one, AAC first (or Opus first when preferOpus)
+    private fun <T> pickAudio2(tracks: List<T>, preferOpus: Boolean, urlOf: (T) -> String): T? {
+        if (tracks.isEmpty()) return null
+        val originals = tracks.filter { isOriginalAudio(urlOf(it)) }
+        val pool = if (originals.isNotEmpty()) originals else tracks
+        val prefer = if (preferOpus) listOf(251, 250, 249, 140, 141, 139) else listOf(140, 251, 141, 250, 139, 249)
+        for (itag in prefer) {
+            val m = pool.firstOrNull { audioItag2(urlOf(it)) == itag }
+            if (m != null) return m
+        }
+        return pool.first()
+    }
+
     // ---------- playback ----------
 
     private suspend fun player(id: String, client: JSONObject, ua: String, cname: String, cver: String): JSONObject? {
@@ -427,8 +444,13 @@ class YouTubeSubsProvider : MainAPI() {
         val builtIn = loadExtractor("https://www.youtube.com/watch?v=$id", subtitleCallback) { l ->
             val hh = linkHeight(l.url, l.quality)
             if (capB <= 0 || hh <= capB) {
-                val orig = l.audioTracks.filter { isOriginalAudio(it.url) }
-                if (orig.isNotEmpty() && orig.size != l.audioTracks.size) l.audioTracks = orig
+                val amode = YtSettings.audioMode()
+                if (amode == 2) {
+                    if (l.audioTracks.isNotEmpty()) l.audioTracks = emptyList()
+                } else {
+                    val best = pickAudio2(l.audioTracks, amode == 1) { it.url }
+                    if (best != null && l.audioTracks.size != 1) l.audioTracks = listOf(best)
+                }
                 callback(l)
             }
         }
