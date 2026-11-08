@@ -61,6 +61,10 @@ object YtWatchLater {
         return true
     }
 
+    fun clear() {
+        save(emptyList())
+    }
+
     fun showManage(ctx: Context) {
         val items = list()
         if (items.isEmpty()) {

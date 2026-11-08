@@ -204,6 +204,19 @@ class YouTubeSubsProvider : MainAPI() {
     // ---------- details ----------
 
     override suspend fun load(url: String): LoadResponse {
+        if (url.contains("ytwl://rmwl/")) {
+            val rid = url.substringAfter("ytwl://rmwl/").substringBefore("?").substringBefore("&")
+            if (YtWatchLater.contains(rid)) YtWatchLater.toggle(rid, "")
+            YtWatchLater.toast("Removed from Watch Later")
+            val next = YtWatchLater.list().firstOrNull()?.first
+                ?: throw ErrorLoadingException("Watch Later is empty")
+            return loadWatchLater(next, "$mainUrl/watch?v=$next&yswl=1")
+        }
+        if (url.contains("ytwl://clear/")) {
+            YtWatchLater.clear()
+            YtWatchLater.toast("Watch Later cleared")
+            throw ErrorLoadingException("Watch Later is empty")
+        }
         if (url.contains("ytwl://list/")) {
             val first = YtWatchLater.list().firstOrNull()?.first
                 ?: throw ErrorLoadingException("Watch Later is empty")
@@ -274,9 +287,17 @@ class YouTubeSubsProvider : MainAPI() {
                 this.posterUrl = "https://i.ytimg.com/vi/${p.first}/mqdefault.jpg"
             }
         }
+        val removeCards = ordered.map { p ->
+            newMovieSearchResponse("🗑 Remove: " + p.second.take(45), "ytwl://rmwl/" + p.first, TvType.Others) {
+                this.posterUrl = "https://i.ytimg.com/vi/" + p.first + "/mqdefault.jpg"
+            }
+        } + newMovieSearchResponse("🗑 Clear all (" + ordered.size + ")", "ytwl://clear/", TvType.Others) {
+            this.posterUrl = "https://i.ytimg.com/vi/" + ordered.first().first + "/mqdefault.jpg"
+        }
         return newTvSeriesLoadResponse("Watch Later", url, TvType.Others, episodes) {
             this.posterUrl = "https://i.ytimg.com/vi/${ordered.first().first}/hqdefault.jpg"
             this.plot = "Plays your saved videos one after another"
+            this.recommendations = removeCards
         }
     }
 
