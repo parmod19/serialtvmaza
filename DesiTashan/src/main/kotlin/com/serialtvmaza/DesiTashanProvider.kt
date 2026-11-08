@@ -53,7 +53,7 @@ class DesiTashanProvider : MainAPI() {
         val items = doc.select("article.card")
             .mapNotNull { it.toCard()?.toSearch() }
             .distinctBy { it.url }
-        return newHomePageResponse(request.name, items, items.isNotEmpty())
+        return newHomePageResponse(HomePageList(request.name, items, true), items.isNotEmpty())
     }
 
     // ---------------- Search ----------------

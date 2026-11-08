@@ -170,7 +170,7 @@ class SerialTvMazaProvider : MainAPI() {
         val doc = app.get(url).document
         val results = toEpisodeCards(parseItems(doc))
         val hasNext = doc.select("a[href*=/page/${page + 1}/]").isNotEmpty()
-        return newHomePageResponse(listOf(HomePageList(request.name, results)), hasNext)
+        return newHomePageResponse(listOf(HomePageList(request.name, results, true)), hasNext)
     }
 
     // ---------- Search ----------

@@ -1,4 +1,4 @@
-version = 2 // INTEGER ONLY. Increase on every code change.
+version = 3 // INTEGER ONLY. Increase on every code change.
 
 cloudstream {
     description = "Indian TV serials and shows from desitashan.su"
