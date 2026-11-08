@@ -205,8 +205,8 @@ class YouTubeSubsProvider : MainAPI() {
 
     override suspend fun load(url: String): LoadResponse {
         var realUrl = url
-        val isAdd = url.startsWith("ytwl://add/")
-        val isRemove = url.startsWith("ytwl://remove/")
+        val isAdd = url.contains("ytwl://add/")
+        val isRemove = url.contains("ytwl://remove/")
         if (isAdd || isRemove) {
             val rest = url.substringAfter(if (isAdd) "ytwl://add/" else "ytwl://remove/")
             val aid = rest.substringBefore("?")
