@@ -29,7 +29,6 @@ class YouTubeSubsProvider : MainAPI() {
         private const val VR_UA =
             "com.google.android.apps.youtube.vr.oculus/1.60.19 (Linux; U; Android 12L; eureka-user Build/SQ3A.220605.009.A1) gzip"
         private const val JSON_MT = "application/json"
-        private const val BROWSER_UA = "Mozilla/5.0 (Linux; Android 13; Pixel 7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36"
     }
 
     // ---------- helpers ----------
@@ -442,25 +441,32 @@ class YouTubeSubsProvider : MainAPI() {
 
         // 3) CloudStream built-in YouTube extractor, capped to the playback max quality
         val capB = YtSettings.playMax()
+        val collected = ArrayList<ExtractorLink>()
         val builtIn = loadExtractor("https://www.youtube.com/watch?v=$id", subtitleCallback) { l ->
+            collected.add(l)
+        }
+        val hasH264 = collected.any {
+            it.name.contains("264") && (capB <= 0 || linkHeight(it.url, it.quality) <= capB)
+        }
+        val dropModern = YtSettings.preferH264() && hasH264
+        var shown = 0
+        for (l in collected) {
+            if (dropModern && (l.name.contains("VP9") || l.name.contains("AV1"))) continue
             val hh = linkHeight(l.url, l.quality)
             if (capB <= 0 || hh <= capB) {
-                val amode = YtSettings.audioMode()
-                if (amode == 2) {
-                    if (l.audioTracks.isNotEmpty()) l.audioTracks = emptyList()
-                } else {
-                    val best = pickAudio2(l.audioTracks, amode == 1) { it.url }
-                    if (best != null && l.audioTracks.size != 1) l.audioTracks = listOf(best)
-                }
-                if (YtSettings.browserUa()) {
-                    val hdr = HashMap<String, String>()
-                    hdr.putAll(l.headers)
-                    hdr["User-Agent"] = BROWSER_UA
-                    l.headers = hdr
-                }
+                val orig = l.audioTracks.filter { isOriginalAudio(it.url) }
+                if (orig.isNotEmpty() && orig.size != l.audioTracks.size) l.audioTracks = orig
                 callback(l)
+                shown++
             }
         }
-        return found || builtIn
+        if (shown == 0 && collected.isNotEmpty()) {
+            for (l in collected) {
+                callback(l)
+                shown++
+            }
+        }
+        YtWatchLater.toast("Links: " + collected.size + " found, " + shown + " shown")
+        return found || builtIn || shown > 0
     }
 }
