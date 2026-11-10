@@ -25,6 +25,7 @@ class SerialTvMazaNetProvider : MainAPI() {
 
     // Top-level WordPress paths that are NOT episode posts.
     private val reserved = setOf(
+        "tv-show-promos-and-written-update",
         "page", "feed", "contact-us", "privacy-policy",
         "dmca-copyright-policy-disclaimer", "sitemap", "wp-content",
         "wp-json", "category", "tag", "author", "comments"
@@ -47,6 +48,16 @@ class SerialTvMazaNetProvider : MainAPI() {
     )
 
     // ---------- URL helpers ----------
+
+    // "Tv Show Promos And Written Update" category: promo/preview posts with no video links.
+    private val promoTitleRegex =
+        Regex("""(?i)\b(?:promos?|previews?|teasers?|written\s+update)\b""")
+    private val promoSlugRegex =
+        Regex("""(?i)(?:^|-)(?:promos?|previews?|teasers?|written-update)(?:-|$)""")
+
+    private fun isPromoPost(title: String, href: String): Boolean =
+        promoTitleRegex.containsMatchIn(title) ||
+            promoSlugRegex.containsMatchIn(segments(href).firstOrNull().orEmpty())
 
     private fun segments(url: String): List<String> = try {
         URI(url).path.orEmpty().trim('/').split('/').filter { it.isNotBlank() }
@@ -131,7 +142,7 @@ class SerialTvMazaNetProvider : MainAPI() {
             val href = a.absUrl("href")
             if (!isEpisodeUrl(href)) return@mapNotNull null
             val title = a.text().trim()
-            if (title.isBlank()) return@mapNotNull null
+            if (title.isBlank() || isPromoPost(title, href)) return@mapNotNull null
             Item(title, href, posters[href])
         }.distinctBy { it.href }
     }
