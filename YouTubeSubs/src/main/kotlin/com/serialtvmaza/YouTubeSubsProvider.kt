@@ -391,6 +391,7 @@ class YouTubeSubsProvider : MainAPI() {
             YtWatchLater.toast("DASH engine: " + dashCount + " links")
             return true
         }
+        YtWatchLater.toast("DASH off: " + YtDash.lastInfo)
 
         // 1) iOS client -> HLS master playlist (all resolutions)
         val iosClient = JSONObject()

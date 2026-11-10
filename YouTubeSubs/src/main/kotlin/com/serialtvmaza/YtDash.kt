@@ -20,6 +20,9 @@ object YtDash {
     private class Vid(val url: String, val mime: String, val height: Int, val initR: String?, val indexR: String?)
     private class Aud(val url: String, val mime: String, val bitrate: Int, val initR: String?, val indexR: String?)
 
+    @Volatile
+    var lastInfo: String = ""
+
     private var server: ServerSocket? = null
     private var port = 0
     private val manifests = ConcurrentHashMap<String, String>()
@@ -99,6 +102,7 @@ object YtDash {
             }
             chosen.sortByDescending { it.height }
 
+            lastInfo = "video-only " + (s.videoOnlyStreams?.size ?: 0) + ", usable " + vids.size + ", audio " + allAud.size + ", after cap " + chosen.size
             if (chosen.isNotEmpty() && auds.isNotEmpty()) {
                 ensureServer()
                 for (v in chosen) {
@@ -130,6 +134,7 @@ object YtDash {
                 }
             }
         } catch (e: Throwable) {
+            lastInfo = "error " + e.javaClass.simpleName + ": " + (e.message ?: "").take(100)
         }
         return count
     }
