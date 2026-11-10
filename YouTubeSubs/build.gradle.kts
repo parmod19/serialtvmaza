@@ -1,4 +1,4 @@
-version = 22 // INTEGER ONLY. Increase on every code change.
+version = 23 // INTEGER ONLY. Increase on every code change.
 
 cloudstream {
     description = "YouTube subscriptions feed with Google login and all-resolution playback"
@@ -8,4 +8,8 @@ cloudstream {
     requiresResources = false
     language = "en"
     iconUrl = "https://www.google.com/s2/favicons?domain=youtube.com&sz=%size%"
+}
+
+dependencies {
+    add("implementation", "com.github.TeamNewPipe:NewPipeExtractor:v0.25.2")
 }

@@ -386,6 +386,11 @@ class YouTubeSubsProvider : MainAPI() {
         }
         val id = videoId(data) ?: return false
         var found = false
+        val dashCount = YtDash.links(id, YtSettings.playMax(), YtSettings.preferH264(), name, callback)
+        if (dashCount > 0) {
+            YtWatchLater.toast("DASH engine: " + dashCount + " links")
+            return true
+        }
 
         // 1) iOS client -> HLS master playlist (all resolutions)
         val iosClient = JSONObject()
