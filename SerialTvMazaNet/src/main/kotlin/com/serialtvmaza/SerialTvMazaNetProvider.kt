@@ -186,15 +186,19 @@ class SerialTvMazaNetProvider : MainAPI() {
         val url = if (page > 1) "$base/page/$page/" else request.data
         var dbg = ""
         try {
-            val res = app.get(url, interceptor = cfKiller)
-            val doc = res.document
-            val items = parseItems(doc)
-            if (items.isNotEmpty() || page > 1) {
-                val results = toEpisodeCards(items)
-                val hasNext = doc.select("a[href*=/page/${page + 1}/]").isNotEmpty()
-                return newHomePageResponse(listOf(HomePageList(request.name, results, true)), hasNext)
+            val res = kotlinx.coroutines.withTimeoutOrNull(25_000L) { app.get(url, interceptor = cfKiller) }
+            if (res == null) {
+                dbg = "DEBUG $name TIMEOUT 25s (Cloudflare solve atka)"
+            } else {
+                val doc = res.document
+                val items = parseItems(doc)
+                if (items.isNotEmpty() || page > 1) {
+                    val results = toEpisodeCards(items)
+                    val hasNext = doc.select("a[href*=/page/${page + 1}/]").isNotEmpty()
+                    return newHomePageResponse(listOf(HomePageList(request.name, results, true)), hasNext)
+                }
+                dbg = "DEBUG $name code=${res.code} title=${doc.title().take(40)} len=${res.text.length}"
             }
-            dbg = "DEBUG $name code=${res.code} title=${doc.title().take(40)} len=${res.text.length}"
         } catch (e: Exception) {
             dbg = "DEBUG $name EXC ${e::class.simpleName}: ${e.message?.take(80)}"
         }
