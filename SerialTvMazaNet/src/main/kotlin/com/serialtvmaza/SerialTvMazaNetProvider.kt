@@ -184,17 +184,22 @@ class SerialTvMazaNetProvider : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val base = request.data.trimEnd('/')
         val url = if (page > 1) "$base/page/$page/" else request.data
-        val res = app.get(url, interceptor = cfKiller)
-        val doc = res.document
-        val items = parseItems(doc)
-        if (page == 1 && items.isEmpty()) {
-            throw ErrorLoadingException(
-                "DEBUG code=${res.code} title=${doc.title().take(40)} len=${res.text.length} url=${res.url}"
-            )
+        var dbg = ""
+        try {
+            val res = app.get(url, interceptor = cfKiller)
+            val doc = res.document
+            val items = parseItems(doc)
+            if (items.isNotEmpty() || page > 1) {
+                val results = toEpisodeCards(items)
+                val hasNext = doc.select("a[href*=/page/${page + 1}/]").isNotEmpty()
+                return newHomePageResponse(listOf(HomePageList(request.name, results, true)), hasNext)
+            }
+            dbg = "DEBUG v23 code=${res.code} title=${doc.title().take(40)} len=${res.text.length} url=${res.url}"
+        } catch (e: Exception) {
+            dbg = "DEBUG v23 EXC ${e::class.simpleName}: ${e.message?.take(80)}"
         }
-        val results = toEpisodeCards(items)
-        val hasNext = doc.select("a[href*=/page/${page + 1}/]").isNotEmpty()
-        return newHomePageResponse(listOf(HomePageList(request.name, results, true)), hasNext)
+        val card = newTvSeriesSearchResponse(dbg, url, TvType.TvSeries)
+        return newHomePageResponse(listOf(HomePageList(dbg, listOf(card), false)), false)
     }
 
     // ---------- Search ----------
