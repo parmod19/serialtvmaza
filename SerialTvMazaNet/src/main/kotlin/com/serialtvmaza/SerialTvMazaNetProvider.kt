@@ -1,5 +1,6 @@
 package com.serialtvmaza
 
+import com.lagradost.cloudstream3.network.CloudflareKiller
 import com.lagradost.cloudstream3.*
 import com.lagradost.cloudstream3.utils.*
 import org.jsoup.nodes.Document
@@ -7,6 +8,7 @@ import java.net.URI
 import java.net.URLEncoder
 
 class SerialTvMazaNetProvider : MainAPI() {
+    private val cfKiller = CloudflareKiller()
     override var mainUrl = "https://serialtvmaza.net"
     override var name = "SerialTvMazaNet"
     override var lang = "hi"
@@ -182,7 +184,7 @@ class SerialTvMazaNetProvider : MainAPI() {
     override suspend fun getMainPage(page: Int, request: MainPageRequest): HomePageResponse {
         val base = request.data.trimEnd('/')
         val url = if (page > 1) "$base/page/$page/" else request.data
-        val doc = app.get(url).document
+        val doc = app.get(url, interceptor = cfKiller).document
         val results = toEpisodeCards(parseItems(doc))
         val hasNext = doc.select("a[href*=/page/${page + 1}/]").isNotEmpty()
         return newHomePageResponse(listOf(HomePageList(request.name, results, true)), hasNext)
@@ -192,7 +194,7 @@ class SerialTvMazaNetProvider : MainAPI() {
 
     override suspend fun search(query: String): List<SearchResponse> {
         val q = URLEncoder.encode(query.trim(), "UTF-8").replace("+", "%20")
-        val doc = app.get("$mainUrl/?s=$q").document
+        val doc = app.get("$mainUrl/?s=$q", interceptor = cfKiller).document
         return toSearchResults(parseItems(doc))
     }
 
@@ -200,7 +202,7 @@ class SerialTvMazaNetProvider : MainAPI() {
 
     override suspend fun load(url: String): LoadResponse {
         var showUrl = url
-        var doc = app.get(url).document
+        var doc = app.get(url, interceptor = cfKiller).document
         var showTitle: String? = null
         val epTitle = doc.title().substringBeforeLast(" - ").trim().ifBlank { null }
         val epPoster = doc.selectFirst("meta[property=og:image]")?.attr("content")
@@ -232,7 +234,7 @@ class SerialTvMazaNetProvider : MainAPI() {
             if (showLink != null) {
                 showUrl = showLink.absUrl("href")
                 showTitle = showLink.text().trim()
-                doc = app.get(showUrl).document
+                doc = app.get(showUrl, interceptor = cfKiller).document
             } else {
                 // Not part of any show (special post): expose this single episode.
                 return newMovieLoadResponse(cleanEpisodeName(epTitle ?: "Episode"), url, TvType.Movie, url) {
@@ -264,7 +266,7 @@ class SerialTvMazaNetProvider : MainAPI() {
         // Remaining category pages are fetched in parallel.
         val extraDocs = (2..6).toList().amap { p ->
             try {
-                app.get("${showUrl.trimEnd('/')}/page/$p/").document
+                app.get("${showUrl.trimEnd('/')}/page/$p/", interceptor = cfKiller).document
             } catch (e: Exception) {
                 null
             }
@@ -274,7 +276,7 @@ class SerialTvMazaNetProvider : MainAPI() {
         // Episodes the site filed under another category are found through its search.
         try {
             val sq = URLEncoder.encode(showName, "UTF-8").replace("+", "%20")
-            addFrom(app.get("$mainUrl/?s=$sq").document)
+            addFrom(app.get("$mainUrl/?s=$sq", interceptor = cfKiller).document)
         } catch (e: Exception) {
         }
 
@@ -317,7 +319,7 @@ class SerialTvMazaNetProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val seen = HashSet<String>()
-        val doc = try { app.get(data).document } catch (e: Exception) { null }
+        val doc = try { app.get(data, interceptor = cfKiller).document } catch (e: Exception) { null }
         var found = if (doc != null) extractFromPage(data, doc, seen, subtitleCallback, callback) else false
         if (!found && doc != null) found = followHops(data, doc, seen, subtitleCallback, callback)
 
@@ -330,7 +332,7 @@ class SerialTvMazaNetProvider : MainAPI() {
                 if (h == own || path.isBlank()) continue
                 val u = "https://$h$path"
                 if (!seen.add(u)) continue
-                val d2 = try { app.get(u, referer = data).document } catch (e: Exception) { continue }
+                val d2 = try { app.get(u, referer = data, interceptor = cfKiller).document } catch (e: Exception) { continue }
                 found = extractFromPage(u, d2, seen, subtitleCallback, callback)
                 if (!found) found = followHops(u, d2, seen, subtitleCallback, callback)
             }
@@ -357,7 +359,7 @@ class SerialTvMazaNetProvider : MainAPI() {
         }.map { it.absUrl("href") }.distinct().take(3)
         for (h in hops) {
             if (!seen.add(h)) continue
-            val hd = try { app.get(h, referer = pageUrl).document } catch (e: Exception) { continue }
+            val hd = try { app.get(h, referer = pageUrl, interceptor = cfKiller).document } catch (e: Exception) { continue }
             if (extractFromPage(h, hd, seen, subtitleCallback, callback)) found = true
         }
         return found
@@ -451,7 +453,7 @@ class SerialTvMazaNetProvider : MainAPI() {
         callback: (ExtractorLink) -> Unit
     ): Boolean {
         val res = try {
-            app.get(link, referer = referer)
+            app.get(link, referer = referer, interceptor = cfKiller)
         } catch (e: Exception) {
             return false
         }
