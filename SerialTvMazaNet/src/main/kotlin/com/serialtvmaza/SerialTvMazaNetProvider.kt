@@ -194,9 +194,9 @@ class SerialTvMazaNetProvider : MainAPI() {
                 val hasNext = doc.select("a[href*=/page/${page + 1}/]").isNotEmpty()
                 return newHomePageResponse(listOf(HomePageList(request.name, results, true)), hasNext)
             }
-            dbg = "DEBUG v23 code=${res.code} title=${doc.title().take(40)} len=${res.text.length} url=${res.url}"
+            dbg = "DEBUG $name code=${res.code} title=${doc.title().take(40)} len=${res.text.length}"
         } catch (e: Exception) {
-            dbg = "DEBUG v23 EXC ${e::class.simpleName}: ${e.message?.take(80)}"
+            dbg = "DEBUG $name EXC ${e::class.simpleName}: ${e.message?.take(80)}"
         }
         val card = newTvSeriesSearchResponse(dbg, url, TvType.TvSeries)
         return newHomePageResponse(listOf(HomePageList(dbg, listOf(card), false)), false)
