@@ -288,10 +288,10 @@ class SerialTvMazaMeProvider : MainAPI() {
                 { dateKey(it.title) },
                 { episodeNumRegex.find(it.title)?.groupValues?.get(1)?.toIntOrNull() ?: 0 }
             )
-        ).map { item ->
+        ).mapIndexed { i, item ->
             newEpisode(item.href) {
                 this.name = cleanEpisodeName(item.title)
-                this.episode = episodeNumRegex.find(item.title)?.groupValues?.get(1)?.toIntOrNull()
+                this.episode = i + 1
                 this.posterUrl = item.poster
             }
         }
