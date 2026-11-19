@@ -55,6 +55,16 @@ class DesiRulezProvider : MainAPI() {
         ""
     }
 
+    private fun fixLink(raw: String?): String {
+        val u = raw?.trim().orEmpty()
+        return when {
+            u.isBlank() || u.startsWith("data:") -> ""
+            u.startsWith("//") -> "https:$u"
+            u.startsWith("/") -> mainUrl + u
+            else -> u
+        }
+    }
+
     private fun isEpisodeUrl(url: String): Boolean {
         if (hostOf(url) != hostOf(mainUrl)) return false
         val s = segments(url)
@@ -101,14 +111,14 @@ class DesiRulezProvider : MainAPI() {
     private fun parseItems(doc: Document): List<Item> {
         val posters = HashMap<String, String>()
         doc.select("a[href]:has(img)").forEach { a ->
-            val href = a.absUrl("href")
+            val href = fixLink(a.attr("href"))
             if (!isEpisodeUrl(href) || posters.containsKey(href)) return@forEach
             val img = a.selectFirst("img") ?: return@forEach
-            val src = img.absUrl("data-src").ifBlank { img.absUrl("src") }
+            val src = fixLink(img.attr("data-src").ifBlank { img.attr("src") })
             if (src.isNotBlank()) posters[href] = src
         }
         return doc.select("h2 a[href], h3 a[href]").mapNotNull { a ->
-            val href = a.absUrl("href")
+            val href = fixLink(a.attr("href"))
             if (!isEpisodeUrl(href)) return@mapNotNull null
             val title = a.text().trim()
             if (title.isBlank()) return@mapNotNull null
@@ -161,10 +171,10 @@ class DesiRulezProvider : MainAPI() {
         if (isEpisodeUrl(url)) {
             // The URL came from an episode post: find its show category link.
             val showLink = doc.select("a[href*=/category/]").firstOrNull {
-                isShowCategory(it.absUrl("href"))
+                isShowCategory(fixLink(it.attr("href")))
             }
             if (showLink != null) {
-                showUrl = showLink.absUrl("href")
+                showUrl = fixLink(showLink.attr("href"))
                 showTitle = showLink.text().trim().ifBlank { null }
                 doc = app.get(showUrl).document
             } else {
@@ -229,7 +239,7 @@ class DesiRulezProvider : MainAPI() {
         var found = false
 
         val frames = doc.select("iframe[src], iframe[data-src]").map {
-            it.absUrl("src").ifBlank { it.absUrl("data-src") }
+            fixLink(it.attr("src").ifBlank { it.attr("data-src") })
         }.filter { it.startsWith("http") }
 
         frames.forEachIndexed { index, src ->
