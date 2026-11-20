@@ -261,6 +261,45 @@ class DesiRulezProvider : MainAPI() {
         }
     }
 
+    private val lockDataRegex =
+        Regex("""lockData\s*=\s*\[\s*["']([0-9a-fA-F]{32})["']\s*,\s*["']([0-9a-fA-F]+)["']""")
+
+    /** Same unlocking routine as the Vishi player page (sfc32 keystream + chained XOR). */
+    private fun unlockStream(seed: String, hexStr: String): String? {
+        if (seed.length < 32 || hexStr.length % 2 != 0) return null
+        val s = IntArray(4) { i -> seed.substring(i * 8, i * 8 + 8).toLong(16).toInt() }
+        fun next(): Int {
+            var a = s[0]
+            var b = s[1]
+            var c = s[2]
+            var d = s[3]
+            var t = a + b
+            a = b xor (b ushr 9)
+            b = c + (c shl 3)
+            c = (c shl 21) or (c ushr 11)
+            d += 1
+            t += d
+            c += t
+            s[0] = a
+            s[1] = b
+            s[2] = c
+            s[3] = d
+            return t
+        }
+        repeat(12) { next() }
+        val out = StringBuilder()
+        var prev = 0
+        var j = 0
+        while (j + 1 < hexStr.length) {
+            val p = hexStr.substring(j, j + 2).toInt(16) xor ((next() ushr 8) and 255) xor prev
+            out.append(p.toChar())
+            prev = p
+            j += 2
+        }
+        val res = out.toString()
+        return if (res.startsWith("http")) res else null
+    }
+
     private val m3u8Regex = Regex("""https?://[^\s"'<>\\]+\.m3u8[^\s"'<>\\]*""")
     private val mp4Regex = Regex("""https?://[^\s"'<>\\]+\.mp4[^\s"'<>\\]*""")
     private val noReferrerRegex =
@@ -287,6 +326,9 @@ class DesiRulezProvider : MainAPI() {
         val texts = ArrayList<String>()
         if (html.isNotBlank() && !blocked) {
             texts.add(html.replace("\\/", "/"))
+            lockDataRegex.find(html)?.let { lm ->
+                unlockStream(lm.groupValues[1], lm.groupValues[2])?.let { texts.add(it) }
+            }
             if (html.contains("eval(function(p,a,c,k,e")) {
                 try {
                     texts.add(getAndUnpack(html).replace("\\/", "/"))
