@@ -103,7 +103,7 @@ object YtDownload {
             if (!mux(vf, af, out)) throw IllegalStateException("merge failed")
             val safe = title.replace(Regex("[\\\\/:*?\"<>|\\n\\r]"), "_").trim().take(80).ifBlank { videoId }
             val where = publish(ctx, out, safe + " [" + videoId + "] 720p.mp4")
-            YtDlList.update(videoId, "done", 100, where, uriOf(where))
+            YtDlList.update(videoId, "done", 100, where, lastUri)
             YtWatchLater.toast("Saved 720p: " + where)
         } finally {
             vf.delete()
@@ -239,6 +239,8 @@ object YtDownload {
         }
     }
 
+    private var lastUri = ""
+
     private fun publish(ctx: Context, file: File, name: String): String {
         try {
             if (Build.VERSION.SDK_INT >= 29) {
@@ -255,6 +257,7 @@ object YtDownload {
                     cv.clear()
                     cv.put(MediaStore.Video.Media.IS_PENDING, 0)
                     ctx.contentResolver.update(uri, cv, null, null)
+                    lastUri = uri.toString()
                     return "Movies/YouTubeSubs/" + name
                 }
             }

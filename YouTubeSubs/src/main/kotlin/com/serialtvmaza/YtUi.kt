@@ -34,7 +34,8 @@ object YtUi {
                     which == names.size -> showLogin(ctx)
                     which == names.size + 1 -> showPaste(ctx)
                     which == names.size + 2 -> YtSettings.showSettings(ctx)
-                    which == names.size + 3 -> YtDlList.showList(ctx)
+                    which == names.size + 3 -> YtWatchLater.showManage(ctx)
+                    which == names.size + 4 -> YtDlList.showList(ctx)
                     else -> YtWatchLater.showManage(ctx)
                 }
             }
