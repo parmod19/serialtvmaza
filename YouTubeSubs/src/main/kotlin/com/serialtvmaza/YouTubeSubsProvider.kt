@@ -351,14 +351,24 @@ class YouTubeSubsProvider : MainAPI() {
                 "https://www.youtube.com/watch?v=" + id + "&hl=en",
                 headers = mapOf("User-Agent" to DESKTOP_UA, "Accept-Language" to "en-US,en;q=0.9")
             ).text
-            val raw = Regex("\"(?:publishDate|uploadDate)\":\"([0-9T:+\\-Z.]+)\"").find(html)?.groupValues?.get(1)
+            val raw = Regex("\"(?:publishDate|uploadDate)\":\"([^\"]+)\"").find(html)?.groupValues?.get(1)
                 ?: return ""
-            val fmt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", java.util.Locale.US)
-            val cut = if (raw.length >= 19) raw.substring(0, 19) + raw.substring(19).replace(":", "") else raw
-            val parsed = try { fmt.parse(cut) } catch (e: Exception) { null }
-                ?: java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(raw.take(10))
-                ?: return ""
-            val when_ = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US).format(parsed)
+            // raw looks like 2009-10-24T23:57:33-07:00 (or Z, or +05:30). Normalise the offset to +HHMM for SimpleDateFormat.
+            val m = Regex("^(\\d{4}-\\d{2}-\\d{2})T(\\d{2}:\\d{2}:\\d{2})(?:\\.\\d+)?(Z|[+-]\\d{2}:?\\d{2})?$").find(raw)
+            val parsed: java.util.Date = if (m != null) {
+                val d = m.groupValues[1]
+                val tm = m.groupValues[2]
+                var zone = m.groupValues[3]
+                if (zone.isEmpty() || zone == "Z") zone = "+0000"
+                zone = zone.replace(":", "")
+                java.text.SimpleDateFormat("yyyy-MM-dd HH:mm:ssZ", java.util.Locale.US).parse(d + " " + tm + zone)
+                    ?: return ""
+            } else {
+                java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(raw.take(10))
+                    ?: return ""
+            }
+            // show the time in the phone's own timezone
+            val local = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(parsed)
             val mins = ((System.currentTimeMillis() - parsed.time) / 60000L).coerceAtLeast(0L)
             val ago = when {
                 mins < 60 -> mins.toString() + " min ago"
@@ -367,7 +377,7 @@ class YouTubeSubsProvider : MainAPI() {
                 mins < 525600 -> (mins / 43200).toString() + " months ago"
                 else -> (mins / 525600).toString() + " years ago"
             }
-            "Uploaded: " + when_ + " (" + ago + ")"
+            "Uploaded: " + local + " (" + ago + ")"
         } catch (e: Exception) {
             ""
         }
