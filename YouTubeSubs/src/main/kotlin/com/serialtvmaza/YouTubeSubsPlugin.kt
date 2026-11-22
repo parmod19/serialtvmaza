@@ -11,6 +11,7 @@ class YouTubeSubsPlugin : Plugin() {
         YtSettings.init(context)
         YtWatchLater.init(context)
         YtDownload.init(context)
+        YtDlList.init(context)
         registerMainAPI(YouTubeSubsProvider())
         openSettings = { ctx -> YtUi.showAccounts(ctx) }
     }

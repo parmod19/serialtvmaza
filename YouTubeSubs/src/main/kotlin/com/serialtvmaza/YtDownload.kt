@@ -45,11 +45,13 @@ object YtDownload {
             return
         }
         busy = true
+        YtDlList.add(videoId, title)
         YtWatchLater.toast("Download 720p started: " + title.take(40))
         thread(isDaemon = true) {
             try {
                 run720(videoId, title)
             } catch (e: Throwable) {
+                YtDlList.update(videoId, "failed", 0, "", "")
                 YtWatchLater.toast("Download failed: " + (e.message ?: e.javaClass.simpleName).take(120))
             } finally {
                 busy = false
@@ -94,13 +96,14 @@ object YtDownload {
         val out = File(dir, videoId + ".out.mp4")
         try {
             YtWatchLater.toast("Downloading video (" + heightOf(video) + "p)...")
-            downloadFile(vUrl, vf)
+            downloadFile(vUrl, vf, videoId, 0, 45)
             YtWatchLater.toast("Downloading audio...")
-            downloadFile(aUrl, af)
+            downloadFile(aUrl, af, videoId, 45, 90)
             YtWatchLater.toast("Merging video and audio...")
             if (!mux(vf, af, out)) throw IllegalStateException("merge failed")
             val safe = title.replace(Regex("[\\\\/:*?\"<>|\\n\\r]"), "_").trim().take(80).ifBlank { videoId }
             val where = publish(ctx, out, safe + " [" + videoId + "] 720p.mp4")
+            YtDlList.update(videoId, "done", 100, where, uriOf(where))
             YtWatchLater.toast("Saved 720p: " + where)
         } finally {
             vf.delete()
@@ -123,7 +126,24 @@ object YtDownload {
         return n
     }
 
-    private fun downloadFile(url: String, dest: File) {
+    private var lastToastStep = -1
+
+    private fun progress(id: String, from: Int, to: Int, done: Long, total: Long) {
+        if (total <= 0L) return
+        val pct = from + ((to - from) * done / total).toInt()
+        YtDlList.update(id, "running", pct, "", "")
+        val step = pct / 10
+        if (step != lastToastStep) {
+            lastToastStep = step
+            YtWatchLater.toast("Download " + pct + "%")
+        }
+    }
+
+    private fun uriOf(where: String): String {
+        return if (where.startsWith("/")) "file://" + where else ""
+    }
+
+    private fun downloadFile(url: String, dest: File, id: String, from: Int, to: Int) {
         if (dest.exists()) dest.delete()
         var total = -1L
         http.newCall(
@@ -155,6 +175,7 @@ object YtDownload {
                         val got = copy(body.byteStream(), fos)
                         if (got <= 0L) throw IllegalStateException("no data at " + pos)
                         pos += got
+                        progress(id, from, to, pos, total)
                     }
                 }
             }
