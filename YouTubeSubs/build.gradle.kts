@@ -1,4 +1,4 @@
-version = 33 // INTEGER ONLY. Increase on every code change.
+version = 34 // INTEGER ONLY. Increase on every code change.
 
 cloudstream {
     description = "YouTube subscriptions feed with Google login and all-resolution playback"

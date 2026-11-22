@@ -39,29 +39,27 @@ object YtDownload {
         appCtx = ctx.applicationContext
     }
 
-    private val queue = java.util.concurrent.LinkedBlockingQueue<Pair<String, String>>()
-    private var worker: Thread? = null
+    // up to 3 downloads run at the same time; extra ones wait for a free slot
+    private val slots = java.util.concurrent.Semaphore(3)
 
     fun start(videoId: String, title: String) {
         YtDlList.add(videoId, title)
-        queue.offer(Pair(videoId, title))
-        val cur = worker
-        if (cur == null || !cur.isAlive) {
-            val t = thread(isDaemon = true) {
-                while (true) {
-                    val job = queue.poll() ?: break
-                    try {
-                        YtDlList.update(job.first, "running", 0, "", "")
-                        run720(job.first, job.second)
-                    } catch (e: Throwable) {
-                        YtDlList.update(job.first, "failed", 0, "", "")
-                        YtWatchLater.toast("Download failed: " + (e.message ?: e.javaClass.simpleName).take(120))
-                    }
+        YtWatchLater.toast("Queued: " + title.take(40))
+        thread(isDaemon = true) {
+            try {
+                slots.acquire()
+                try {
+                    YtDlList.update(videoId, "running", 0, "", "")
+                    run720(videoId, title)
+                } catch (e: Throwable) {
+                    YtDlList.update(videoId, "failed", 0, "", "")
+                    YtWatchLater.toast("Download failed: " + (e.message ?: e.javaClass.simpleName).take(120))
+                } finally {
+                    slots.release()
                 }
+            } catch (e: InterruptedException) {
             }
-            worker = t
         }
-        YtWatchLater.toast("Queued: " + title.take(40) + " (" + queue.size + " waiting)")
     }
 
     private fun heightOf(v: VideoStream): Int = runCatching { v.height }.getOrNull() ?: 0
