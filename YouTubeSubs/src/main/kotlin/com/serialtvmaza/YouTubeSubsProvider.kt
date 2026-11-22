@@ -242,6 +242,12 @@ class YouTubeSubsProvider : MainAPI() {
             }
             realUrl = "$mainUrl/watch?v=$aid"
         }
+        if (realUrl.contains("ytdl://dl/")) {
+            val did = realUrl.substringAfter("ytdl://dl/").substringBefore("?").substringBefore("&")
+            val dt = try { URLDecoder.decode(realUrl.substringAfter("?t=", ""), "UTF-8") } catch (e: Exception) { "" }
+            YtDownload.start(did, dt.ifBlank { did })
+            realUrl = "$mainUrl/watch?v=$did"
+        }
         val id = videoId(realUrl) ?: throw ErrorLoadingException("Invalid YouTube url")
         if (realUrl.contains("yswl=1")) return loadWatchLater(id, realUrl)
         val watch = "$mainUrl/watch?v=$id"
@@ -269,11 +275,14 @@ class YouTubeSubsProvider : MainAPI() {
         val listCard = newMovieSearchResponse("🕒 Open Watch Later ($wlCount)", "ytwl://list/", TvType.Others) {
             this.posterUrl = thumb
         }
+        val dlCard = newMovieSearchResponse("⬇ Download 720p (with audio)", "ytdl://dl/" + id + "?t=" + enc, TvType.Others) {
+            this.posterUrl = thumb
+        }
         return newMovieLoadResponse(title, watch, TvType.Others, watch) {
             this.posterUrl = thumb
             this.plot = listOf(if (author.isBlank()) "" else "Channel: $author", uploaded)
                 .filter { it.isNotBlank() }.joinToString("\n").ifBlank { null }
-            this.recommendations = listOf(actionCard, listCard)
+            this.recommendations = listOf(actionCard, listCard, dlCard)
         }
     }
 
