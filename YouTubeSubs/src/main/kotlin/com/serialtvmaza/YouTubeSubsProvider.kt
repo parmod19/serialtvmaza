@@ -253,6 +253,7 @@ class YouTubeSubsProvider : MainAPI() {
         val title = info?.optString("title", "").orEmpty().ifBlank { "YouTube video" }
         val author = info?.optString("author_name", "").orEmpty()
         val thumb = "https://i.ytimg.com/vi/$id/hqdefault.jpg"
+        val uploaded = uploadedAgo(id)
         val inWl = YtWatchLater.contains(id)
         val enc = URLEncoder.encode(title, "UTF-8")
         val actionCard = if (inWl) {
@@ -270,7 +271,8 @@ class YouTubeSubsProvider : MainAPI() {
         }
         return newMovieLoadResponse(title, watch, TvType.Others, watch) {
             this.posterUrl = thumb
-            this.plot = if (author.isBlank()) null else "Channel: $author"
+            this.plot = listOf(if (author.isBlank()) "" else "Channel: $author", uploaded)
+                .filter { it.isNotBlank() }.joinToString("\n").ifBlank { null }
             this.recommendations = listOf(actionCard, listCard)
         }
     }
@@ -340,6 +342,31 @@ class YouTubeSubsProvider : MainAPI() {
             if (m != null) return m
         }
         return pool.first()
+    }
+
+    // reads the upload date from the watch page and returns e.g. "Uploaded: 2026-11-10 (3 days ago)"
+    private suspend fun uploadedAgo(id: String): String {
+        return try {
+            val html = app.get(
+                "https://www.youtube.com/watch?v=" + id + "&hl=en",
+                headers = mapOf("User-Agent" to DESKTOP_UA, "Accept-Language" to "en-US,en;q=0.9")
+            ).text
+            val raw = Regex("\"(?:publishDate|uploadDate)\":\"([0-9T:+\\-Z.]+)\"").find(html)?.groupValues?.get(1)
+                ?: return ""
+            val day = raw.take(10)
+            val date = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(day) ?: return ""
+            val days = ((System.currentTimeMillis() - date.time) / 86400000L).toInt()
+            val ago = when {
+                days <= 0 -> "today"
+                days == 1 -> "1 day ago"
+                days < 30 -> days.toString() + " days ago"
+                days < 365 -> (days / 30).toString() + " months ago"
+                else -> (days / 365).toString() + " years ago"
+            }
+            "Uploaded: " + day + " (" + ago + ")"
+        } catch (e: Exception) {
+            ""
+        }
     }
 
     // ---------- playback ----------
