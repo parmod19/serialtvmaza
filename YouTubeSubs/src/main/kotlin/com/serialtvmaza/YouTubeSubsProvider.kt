@@ -368,7 +368,6 @@ class YouTubeSubsProvider : MainAPI() {
                     ?: return ""
             }
             // show the time in the phone's own timezone
-            val local = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault()).format(parsed)
             val mins = ((System.currentTimeMillis() - parsed.time) / 60000L).coerceAtLeast(0L)
             val ago = when {
                 mins < 60 -> mins.toString() + " min ago"
@@ -377,7 +376,7 @@ class YouTubeSubsProvider : MainAPI() {
                 mins < 525600 -> (mins / 43200).toString() + " months ago"
                 else -> (mins / 525600).toString() + " years ago"
             }
-            "Uploaded: " + local + " (" + ago + ")"
+            "Uploaded " + ago
         } catch (e: Exception) {
             ""
         }
