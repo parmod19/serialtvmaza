@@ -344,7 +344,7 @@ class YouTubeSubsProvider : MainAPI() {
         return pool.first()
     }
 
-    // reads the upload date from the watch page and returns e.g. "Uploaded: 2026-11-10 (3 days ago)"
+    // reads the exact upload time from the watch page, e.g. "Uploaded: 2026-11-10 14:30 (3 hours ago)"
     private suspend fun uploadedAgo(id: String): String {
         return try {
             val html = app.get(
@@ -353,17 +353,21 @@ class YouTubeSubsProvider : MainAPI() {
             ).text
             val raw = Regex("\"(?:publishDate|uploadDate)\":\"([0-9T:+\\-Z.]+)\"").find(html)?.groupValues?.get(1)
                 ?: return ""
-            val day = raw.take(10)
-            val date = java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(day) ?: return ""
-            val days = ((System.currentTimeMillis() - date.time) / 86400000L).toInt()
+            val fmt = java.text.SimpleDateFormat("yyyy-MM-dd'T'HH:mm:ssXXX", java.util.Locale.US)
+            val cut = if (raw.length >= 19) raw.substring(0, 19) + raw.substring(19).replace(":", "") else raw
+            val parsed = try { fmt.parse(cut) } catch (e: Exception) { null }
+                ?: java.text.SimpleDateFormat("yyyy-MM-dd", java.util.Locale.US).parse(raw.take(10))
+                ?: return ""
+            val when_ = java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.US).format(parsed)
+            val mins = ((System.currentTimeMillis() - parsed.time) / 60000L).coerceAtLeast(0L)
             val ago = when {
-                days <= 0 -> "today"
-                days == 1 -> "1 day ago"
-                days < 30 -> days.toString() + " days ago"
-                days < 365 -> (days / 30).toString() + " months ago"
-                else -> (days / 365).toString() + " years ago"
+                mins < 60 -> mins.toString() + " min ago"
+                mins < 1440 -> (mins / 60).toString() + " hours ago"
+                mins < 43200 -> (mins / 1440).toString() + " days ago"
+                mins < 525600 -> (mins / 43200).toString() + " months ago"
+                else -> (mins / 525600).toString() + " years ago"
             }
-            "Uploaded: " + day + " (" + ago + ")"
+            "Uploaded: " + when_ + " (" + ago + ")"
         } catch (e: Exception) {
             ""
         }
