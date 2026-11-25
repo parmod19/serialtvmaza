@@ -81,7 +81,9 @@ class IStreamFlare  : MainAPI() {
             "$mainUrl/${request.data}"
         }
 
-        val root = app.get(url, headers = headers).parsedSafe<Response>() ?: return newHomePageResponse(emptyList())
+        val resp = app.get(url, headers = headers)
+        val root = resp.parsedSafe<Response>()
+            ?: throw ErrorLoadingException("Server ${resp.code}: ${resp.text.take(300)}")
 
         val jsonData = if (root.encrypted) {
             decryptPayload(root.data)
